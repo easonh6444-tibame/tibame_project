@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nebula Dash - Control Center</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
+</head>
+<body>
+    <!-- Background glowing ambient blobs -->
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+
+    <div class="app-container">
+        <!-- Sidebar or Header Panel -->
+        <header class="dashboard-header glass-card">
+            <div class="brand">
+                <span class="brand-logo">🌌</span>
+                <div>
+                    <h1 id="app-title">Nebula Dash</h1>
+                    <p class="subtitle">Next-gen Application Control Panel</p>
+                </div>
+            </div>
+            <div class="server-meta">
+                <div class="meta-item">
+                    <span class="label">Target Port</span>
+                    <span class="value accent-pink">19191</span>
+                </div>
+                <div class="meta-item">
+                    <span class="label">Status</span>
+                    <span class="status-indicator-wrapper">
+                        <span class="status-dot pulsing"></span>
+                        <span class="value" id="server-status">Connecting...</span>
+                    </span>
+                </div>
+                <div class="meta-item">
+                    <span class="label">Server Uptime</span>
+                    <span class="value" id="server-uptime">0s</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Metric Grid -->
+        <main class="dashboard-grid">
+            
+            <!-- CPU Metric Card -->
+            <section class="metric-card glass-card" id="cpu-card">
+                <div class="card-header">
+                    <h3>Processor Load</h3>
+                    <span class="icon">💻</span>
+                </div>
+                <div class="card-body progress-body">
+                    <div class="progress-ring-container">
+                        <svg class="progress-ring" width="120" height="120">
+                            <circle class="progress-ring-bg" stroke="rgba(255, 255, 255, 0.1)" stroke-width="8" fill="transparent" r="50" cx="60" cy="60"/>
+                            <circle class="progress-ring-circle" id="cpu-progress" stroke="url(#cyan-gradient)" stroke-width="8" stroke-dasharray="314.16" stroke-dashoffset="314.16" stroke-linecap="round" fill="transparent" r="50" cx="60" cy="60"/>
+                            <defs>
+                                <linearGradient id="cyan-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#00f2fe"/>
+                                    <stop offset="100%" stop-color="#4facfe"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        <div class="progress-text">
+                            <span class="pct" id="cpu-val">0%</span>
+                            <span class="desc">CPU Load</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Memory Metric Card -->
+            <section class="metric-card glass-card" id="mem-card">
+                <div class="card-header">
+                    <h3>Memory Allocation</h3>
+                    <span class="icon">🧠</span>
+                </div>
+                <div class="card-body progress-body">
+                    <div class="progress-ring-container">
+                        <svg class="progress-ring" width="120" height="120">
+                            <circle class="progress-ring-bg" stroke="rgba(255, 255, 255, 0.1)" stroke-width="8" fill="transparent" r="50" cx="60" cy="60"/>
+                            <circle class="progress-ring-circle" id="mem-progress" stroke="url(#pink-gradient)" stroke-width="8" stroke-dasharray="314.16" stroke-dashoffset="314.16" stroke-linecap="round" fill="transparent" r="50" cx="60" cy="60"/>
+                            <defs>
+                                <linearGradient id="pink-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#ff0844"/>
+                                    <stop offset="100%" stop-color="#ffb199"/>
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                        <div class="progress-text">
+                            <span class="pct" id="mem-val">0%</span>
+                            <span class="desc">RAM Used</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- System Info / Network -->
+            <section class="metric-card glass-card" id="network-card">
+                <div class="card-header">
+                    <h3>Bandwidth / Sessions</h3>
+                    <span class="icon">🚀</span>
+                </div>
+                <div class="card-body flex-column">
+                    <div class="network-stats">
+                        <div class="stat-row">
+                            <span class="label">Traffic Out:</span>
+                            <span class="val font-mono" id="network-val">0.0 MB/s</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">Active Sessions:</span>
+                            <span class="val font-mono" id="sessions-val">0</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="label">API Database:</span>
+                            <span class="val accent-green" id="db-val">Healthy</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Task Management Panel (CRUD) -->
+            <section class="task-panel glass-card">
+                <div class="panel-header">
+                    <h2>Project Checklist & Dev API Tasks</h2>
+                    <p class="description">Live interactive panel querying Flask's REST APIs. Add, complete, and delete tasks dynamically.</p>
+                </div>
+                
+                <!-- Add Task Form -->
+                <form id="task-form" class="task-input-group">
+                    <div class="input-wrapper">
+                        <input type="text" id="task-title-input" placeholder="What requires execution next?" required>
+                        <input type="text" id="task-desc-input" placeholder="Optional details...">
+                    </div>
+                    <button type="submit" class="neon-btn">
+                        <span>Deploy Task</span>
+                        <span class="btn-icon">⚡</span>
+                    </button>
+                </form>
+
+                <!-- Tasks Listing -->
+                <div class="task-list-wrapper">
+                    <div class="loader" id="tasks-loader">
+                        <div class="spinner"></div>
+                        <span>Syncing Checklist...</span>
+                    </div>
+                    <ul class="task-list" id="task-list-element">
+                        <!-- Loaded dynamically via javascript -->
+                    </ul>
+                </div>
+            </section>
+
+        </main>
+
+        <footer class="app-footer">
+            <p>Designed with ❤️ and running on <code>0.0.0.0:19191</code> | Flask Application Scaffolding</p>
+        </footer>
+    </div>
+
+    <!-- Script loading -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
