@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  # ──────────────────────────────────────────────
+  #  Flask Application
+  # ──────────────────────────────────────────────
+  web:
+    build:
+      context: ./first_project      # Dockerfile 所在目錄
+      dockerfile: Dockerfile
+    image: first-project-web:latest
+    container_name: first_project_web
+    restart: unless-stopped
+    ports:
+      - "19191:19191"               # host_port:container_port
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:19191/api/status')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # 如果日後需要 Nginx 反向代理，取消以下 depends_on 即可
+    # depends_on:
+    #   nginx:
+    #     condition: service_healthy
+
+  # ──────────────────────────────────────────────
+  #  (Optional) Nginx reverse proxy — uncomment
+  #  when you want HTTPS termination in front of
+  #  the Flask app.
+  # ──────────────────────────────────────────────
+  # nginx:
+  #   image: nginx:1.25-alpine
+  #   container_name: first_project_nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./nginx/certs:/etc/nginx/certs:ro
+  #   depends_on:
+  #     - web
+
+networks:
+  default:
+    name: first_project_network
