@@ -8,7 +8,7 @@ services:
     build:
       context: ./first_project      # Dockerfile 所在目錄
       dockerfile: Dockerfile
-    image: first-project-web:latest
+    image: easonh6444/first-project-web:latest
     container_name: first_project_web
     restart: unless-stopped
     ports:
