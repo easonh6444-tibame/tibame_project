@@ -159,6 +159,64 @@
 
         </main>
 
+        <!-- S3 Storage Hub (Feature 3) -->
+        <section class="task-panel glass-card" id="s3-section" style="margin-top:0">
+            <div class="panel-header">
+                <h2>☁️ S3 Storage Hub</h2>
+                <p class="description">AWS S3 檔案上傳 &amp; 下載管理 — Bucket: <span id="s3-bucket-label" style="color:#00f2fe;font-family:monospace"></span></p>
+            </div>
+
+            <!-- Upload area -->
+            <div id="s3-drop-zone" style="border:2px dashed rgba(168,85,247,.35);border-radius:12px;padding:32px 20px;text-align:center;cursor:pointer;transition:.25s;margin-bottom:16px">
+                <span style="font-size:36px">📁</span>
+                <p style="font-weight:600;margin:8px 0 4px">拖曳檔案到這裡</p>
+                <p style="color:rgba(232,234,246,.55);font-size:13px">或 <span id="s3-browse" style="color:#a855f7;cursor:pointer;text-decoration:underline">點擊瀏覽</span> 選擇檔案</p>
+                <input type="file" id="s3-file-input" multiple style="display:none">
+            </div>
+
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+                <span id="s3-selected-label" style="flex:1;font-size:13px;color:rgba(232,234,246,.55)">尚未選擇檔案</span>
+                <button id="s3-clear-btn" class="neon-btn" style="display:none;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:13px;padding:8px 16px">✕ 清除</button>
+                <button id="s3-upload-btn" class="neon-btn" disabled style="opacity:.45;font-size:13px;padding:8px 16px">🚀 上傳到 S3</button>
+            </div>
+
+            <!-- Upload progress -->
+            <div id="s3-progress-wrap" style="display:none;margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;font-size:12px;color:rgba(232,234,246,.55);margin-bottom:6px">
+                    <span id="s3-progress-name">上傳中...</span>
+                    <span id="s3-progress-pct">0%</span>
+                </div>
+                <div style="height:6px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden">
+                    <div id="s3-progress-bar" style="height:100%;background:linear-gradient(90deg,#a855f7,#00f2fe);border-radius:99px;width:0%;transition:width .3s ease"></div>
+                </div>
+            </div>
+
+            <!-- File list -->
+            <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+                <input id="s3-search" type="text" placeholder="🔍 搜尋檔案..." style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#e8eaf6;font-size:13px;padding:8px 12px;outline:none">
+                <button id="s3-refresh-btn" class="neon-btn" style="font-size:13px;padding:8px 16px">🔄 重新整理</button>
+            </div>
+
+            <div style="overflow-x:auto">
+                <table style="width:100%;border-collapse:collapse">
+                    <thead>
+                        <tr style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:rgba(232,234,246,.55)">
+                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">檔案名稱</th>
+                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">大小</th>
+                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">修改時間</th>
+                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="s3-files-tbody">
+                        <tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(232,234,246,.55)">
+                            <div style="width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:#00f2fe;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px"></div>
+                            載入中...
+                        </td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <footer class="app-footer">
             <p>Designed with ❤️ and running on <code>0.0.0.0:19191</code> | Flask Application Scaffolding</p>
         </footer>
@@ -166,5 +224,157 @@
 
     <!-- Script loading -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+    // ── S3 Storage Hub ────────────────────────────────────────────────────────
+    (function () {
+        const dropZone    = document.getElementById('s3-drop-zone');
+        const fileInput   = document.getElementById('s3-file-input');
+        const browseBtn   = document.getElementById('s3-browse');
+        const uploadBtn   = document.getElementById('s3-upload-btn');
+        const clearBtn    = document.getElementById('s3-clear-btn');
+        const selLabel    = document.getElementById('s3-selected-label');
+        const progressWrap= document.getElementById('s3-progress-wrap');
+        const progressBar = document.getElementById('s3-progress-bar');
+        const progressPct = document.getElementById('s3-progress-pct');
+        const progressName= document.getElementById('s3-progress-name');
+        const searchInput = document.getElementById('s3-search');
+        const refreshBtn  = document.getElementById('s3-refresh-btn');
+        const tbody       = document.getElementById('s3-files-tbody');
+        let selectedFiles = [], allFiles = [];
+
+        // Populate bucket label
+        fetch('/api/s3/list').then(r => r.json()).then(d => {
+            const el = document.getElementById('s3-bucket-label');
+            if (el && d.bucket) el.textContent = d.bucket;
+        }).catch(() => {});
+
+        // File picker
+        browseBtn.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('click', e => { if (!e.target.closest('#s3-browse')) fileInput.click(); });
+        ['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor='#a855f7'; }));
+        ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor='rgba(168,85,247,.35)'; }));
+        dropZone.addEventListener('drop', e => { const f = Array.from(e.dataTransfer.files); if (f.length) setFiles(f); });
+        fileInput.addEventListener('change', () => { if (fileInput.files.length) setFiles(Array.from(fileInput.files)); });
+
+        function setFiles(files) {
+            selectedFiles = files;
+            selLabel.textContent = files.length === 1 ? files[0].name : `${files.length} 個檔案已選取`;
+            selLabel.style.color = '#00f2fe';
+            uploadBtn.disabled = false; uploadBtn.style.opacity = '1';
+            clearBtn.style.display = '';
+        }
+
+        clearBtn.addEventListener('click', () => {
+            selectedFiles = []; fileInput.value = '';
+            selLabel.textContent = '尚未選擇檔案'; selLabel.style.color = '';
+            uploadBtn.disabled = true; uploadBtn.style.opacity = '.45';
+            clearBtn.style.display = 'none';
+            progressWrap.style.display = 'none';
+        });
+
+        // Upload
+        uploadBtn.addEventListener('click', async () => {
+            if (!selectedFiles.length) return;
+            uploadBtn.disabled = true; uploadBtn.style.opacity = '.45';
+            progressWrap.style.display = '';
+            for (const file of selectedFiles) {
+                progressName.textContent = file.name;
+                let fp = 0;
+                const t = setInterval(() => { fp = Math.min(fp + 3, 85); progressBar.style.width = fp + '%'; progressPct.textContent = fp + '%'; }, 80);
+                try {
+                    const fd = new FormData(); fd.append('file', file);
+                    const res = await fetch('/api/s3/upload', { method: 'POST', body: fd });
+                    clearInterval(t);
+                    if (res.ok) { progressBar.style.width = '100%'; progressPct.textContent = '100%'; }
+                    else { const d = await res.json(); throw new Error(d.error || '上傳失敗'); }
+                } catch (err) { clearInterval(t); console.error(err); }
+                await new Promise(r => setTimeout(r, 400));
+            }
+            uploadBtn.disabled = false; uploadBtn.style.opacity = '1';
+            clearBtn.click(); loadFiles();
+        });
+
+        // Load file list
+        async function loadFiles() {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(232,234,246,.55)"><div style="width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:#00f2fe;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px"></div>載入中...</td></tr>';
+            try {
+                const res = await fetch('/api/s3/list');
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '無法取得列表');
+                allFiles = data.files || [];
+                renderFiles(allFiles);
+                const el = document.getElementById('s3-bucket-label');
+                if (el && data.bucket) el.textContent = data.bucket;
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(255,68,68,.8)">⚠️ ${err.message}</td></tr>`;
+            }
+        }
+
+        function fmtBytes(b) {
+            if (!b) return '—';
+            const u = ['B','KB','MB','GB']; let i = 0;
+            while (b >= 1024 && i < 3) { b /= 1024; i++; }
+            return b.toFixed(i ? 1 : 0) + ' ' + u[i];
+        }
+        function fmtDate(iso) {
+            return iso ? new Date(iso).toLocaleString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
+        }
+        function fmtIcon(n) {
+            const e = (n.split('.').pop() || '').toLowerCase();
+            return {pdf:'📄',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',gif:'🖼️',mp4:'🎬',mp3:'🎵',zip:'🗜️',py:'🐍',js:'📜',html:'🌐',css:'🎨',json:'📋',csv:'📊',txt:'📝'}[e] || '📦';
+        }
+        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        function renderFiles(files) {
+            if (!files.length) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(232,234,246,.55)">☁️ Bucket 是空的</td></tr>';
+                return;
+            }
+            tbody.innerHTML = files.map(f => `
+                <tr style="border-bottom:1px solid rgba(255,255,255,.04)">
+                    <td style="padding:10px 12px">
+                        <span style="font-size:18px">${fmtIcon(f.key)}</span>
+                        <span style="margin-left:8px;font-weight:500">${esc(f.key.split('/').pop())}</span>
+                        <div style="font-size:11px;color:rgba(232,234,246,.4);font-family:monospace;margin-top:2px">${esc(f.key)}</div>
+                    </td>
+                    <td style="padding:10px 12px;font-size:12px;font-family:monospace;color:rgba(232,234,246,.55)">${fmtBytes(f.size)}</td>
+                    <td style="padding:10px 12px;font-size:12px;color:rgba(232,234,246,.55);white-space:nowrap">${fmtDate(f.last_modified)}</td>
+                    <td style="padding:10px 12px">
+                        <div style="display:flex;gap:8px">
+                            <button onclick="s3Download('${esc(f.key)}')" style="background:rgba(0,242,254,.1);border:1px solid rgba(0,242,254,.25);color:#00f2fe;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">⬇ 下載</button>
+                            <button onclick="s3Delete('${esc(f.key)}')" style="background:rgba(255,68,68,.1);border:1px solid rgba(255,68,68,.25);color:#ff4444;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">🗑</button>
+                        </div>
+                    </td>
+                </tr>`).join('');
+        }
+
+        searchInput.addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            renderFiles(allFiles.filter(f => f.key.toLowerCase().includes(q)));
+        });
+        refreshBtn.addEventListener('click', loadFiles);
+
+        // Expose download / delete globally for onclick
+        window.s3Download = async function(key) {
+            try {
+                const res = await fetch(`/api/s3/download-url?key=${encodeURIComponent(key)}`);
+                const d = await res.json();
+                if (!res.ok) throw new Error(d.error);
+                window.open(d.url, '_blank');
+            } catch (err) { alert('下載失敗：' + err.message); }
+        };
+        window.s3Delete = async function(key) {
+            if (!confirm(`確定要刪除 "${key}"？`)) return;
+            try {
+                const res = await fetch('/api/s3/delete', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({key}) });
+                const d = await res.json();
+                if (!res.ok) throw new Error(d.error);
+                loadFiles();
+            } catch (err) { alert('刪除失敗：' + err.message); }
+        };
+
+        loadFiles();
+    })();
+    </script>
 </body>
 </html>
