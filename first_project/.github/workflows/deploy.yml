@@ -1,31 +1,37 @@
-name: Deploy to EC2
+name: Deploy to ECR
 
 on:
   push:
     branches: [main]
 
-jobs:
-  deploy:
-    runs-on: [aws]
+permissions:
+  id-token: write
+  contents: read
 
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REGISTRY_NAME: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::802479323365:role/github-action
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build Docker image
-        run: docker build -t first_project:latest .
+        run: docker build -t ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }} .
 
-      - name: Stop & remove existing container
-        run: docker rm -f first_project 2>/dev/null || true
+      - name: Run tests
+        run: docker run --rm ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }} python -m pytest test/ -v
 
-      - name: Run container
-        run: |
-          docker run -d \
-            --name first_project \
-            --restart unless-stopped \
-            -p 19191:19191 \
-            -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
-            -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-            -e AWS_REGION=${{ secrets.AWS_REGION }} \
-            -e S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }} \
-            first_project:latest
+      - name: Push to ECR
+        run: docker push ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }}
