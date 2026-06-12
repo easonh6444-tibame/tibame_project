@@ -65,9 +65,9 @@ jobs:
 
       - name: Deploy to GCE
         run: |
-          gcloud compute ssh ${{ env.GCE_INSTANCE }} \
+          gcloud compute instances update-container ${{ env.GCE_INSTANCE }} \
             --zone ${{ env.GCE_ZONE }} \
-            --command "docker pull ${{ env.GAR_REPO }}:latest && docker stop myfirstweb 2>/dev/null; docker rm myfirstweb 2>/dev/null; docker run -d --name myfirstweb -p 19191:19191 ${{ env.GAR_REPO }}:latest"
+            --container-image ${{ env.GAR_REPO }}:latest
 
       - name: Notify Discord
         if: success()
