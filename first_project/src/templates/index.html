@@ -44,6 +44,10 @@
                     <span class="label">Server Uptime</span>
                     <span class="value" id="server-uptime">0s</span>
                 </div>
+                <div class="meta-item">
+                    <span class="label">Current Time</span>
+                    <span class="value accent-pink" id="live-clock">--:--:--</span>
+                </div>
             </div>
         </header>
 
@@ -374,6 +378,13 @@
         };
 
         loadFiles();
+    })();
+
+    // ── Live Clock ───────────────────────────────────────────────────────────
+    (function() {
+        const el = document.getElementById('live-clock');
+        function tick() { el.textContent = new Date().toLocaleTimeString('zh-TW', {hour12: false}); }
+        tick(); setInterval(tick, 1000);
     })();
     </script>
 </body>
