@@ -48,6 +48,10 @@
                     <span class="label">Current Time</span>
                     <span class="value" style="color:#ffd700" id="live-clock">--:--:--</span>
                 </div>
+                <div class="meta-item">
+                    <span class="label">Your IP</span>
+                    <span class="value font-mono" id="client-ip">...</span>
+                </div>
             </div>
         </header>
 
@@ -386,6 +390,12 @@
         function tick() { el.textContent = new Date().toLocaleTimeString('zh-TW', {hour12: false}); }
         tick(); setInterval(tick, 1000);
     })();
+
+    // ── Client IP ────────────────────────────────────────────────────────────
+    fetch('https://api.ipify.org?format=json')
+      .then(r => r.json())
+      .then(d => document.getElementById('client-ip').textContent = d.ip)
+      .catch(() => document.getElementById('client-ip').textContent = 'N/A');
     </script>
 </body>
 </html>
