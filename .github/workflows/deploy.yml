@@ -37,3 +37,10 @@ jobs:
 
       - name: Push to ECR
         run: docker push ${{ env.ECR_REGISTRY_NAME }}:latest
+
+      - name: Notify Discord
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\":\"✅ Deploy succeeded! Image \`${{ env.ECR_REGISTRY_NAME }}:latest\` pushed. Commit: \`${{ github.sha }}\`\"}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}
