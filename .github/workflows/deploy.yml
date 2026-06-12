@@ -10,11 +10,9 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
-  ECR_REGISTRY: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com
-  ECR_REPOSITORY: myfirstweb
+  ECR_REGISTRY: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb
   ECS_CLUSTER: default
   ECS_SERVICE: myfirstweb-service
-  CONTAINER_NAME: myfirstweb
 
 jobs:
   deploy:
@@ -29,46 +27,25 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push image
-        id: build
         run: |
-          IMAGE=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
-          docker build -t $IMAGE ./first_project
-          docker push $IMAGE
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-
-      - name: Download current task definition
-        run: |
-          aws ecs describe-task-definition \
-            --task-definition $(aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }} --query 'services[0].taskDefinition' --output text) \
-            --query 'taskDefinition' > task-def.json
-          # Remove fields not accepted by register-task-definition
-          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' task-def.json > clean-task-def.json
-
-      - name: Update image in task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: clean-task-def.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build.outputs.image }}
+          docker build -t ${{ env.ECR_REGISTRY }}:latest ./first_project
+          docker push ${{ env.ECR_REGISTRY }}:latest
 
       - name: Deploy to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment
 
       - name: Notify Discord
         if: success()
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"✅ ECS deploy succeeded! Image: \`${{ steps.build.outputs.image }}\` Commit: \`${{ github.sha }}\`\"}" \
+            -d "{\"content\":\"✅ ECS deploy succeeded! Commit: \`${{ github.sha }}\`\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
 
       - name: Notify Discord on failure
