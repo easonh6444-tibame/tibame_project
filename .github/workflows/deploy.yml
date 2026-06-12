@@ -28,7 +28,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build Docker image
-        run: docker build -t ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }} ./first_project
+        run: docker build -t ${{ env.ECR_REGISTRY_NAME }}:latest ./first_project
 
       - name: Run tests
         run: |
@@ -36,4 +36,4 @@ jobs:
           python -m pytest first_project/test/ -v
 
       - name: Push to ECR
-        run: docker push ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }}
+        run: docker push ${{ env.ECR_REGISTRY_NAME }}:latest
