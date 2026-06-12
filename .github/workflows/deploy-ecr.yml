@@ -1,0 +1,62 @@
+name: Deploy to ECR
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_REGISTRY_NAME: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb
+  ECS_CLUSTER: my-cluster
+  ECS_SERVICE: my-service
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::802479323365:role/github-action
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        run: docker build -t ${{ env.ECR_REGISTRY_NAME }}:latest ./first_project
+
+      - name: Run tests
+        run: |
+          pip install -r first_project/requirements.txt pytest
+          python -m pytest first_project/test/ -v
+
+      - name: Push to ECR
+        run: docker push ${{ env.ECR_REGISTRY_NAME }}:latest
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment
+
+      - name: Notify Discord
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\":\"✅ Deploy succeeded! Image \`${{ env.ECR_REGISTRY_NAME }}:latest\` pushed. Commit: \`${{ github.sha }}\`\"}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Notify Discord on failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d "{\"content\":\"❌ Deploy failed! Commit: \`${{ github.sha }}\`. Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            ${{ secrets.DISCORD_WEBHOOK_URL }}
