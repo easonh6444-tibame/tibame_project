@@ -65,9 +65,10 @@ jobs:
 
       - name: Deploy to GCE
         run: |
-          gcloud compute instances update-container ${{ env.GCE_INSTANCE }} \
+          gcloud compute ssh ${{ env.GCE_INSTANCE }} \
             --zone ${{ env.GCE_ZONE }} \
-            --container-image ${{ env.GAR_REPO }}:latest
+            --quiet \
+            --command "docker-credential-gcr configure-docker --registries=asia-east1-docker.pkg.dev && docker pull ${{ env.GAR_REPO }}:latest && docker stop myfirstweb 2>/dev/null; docker rm myfirstweb 2>/dev/null; docker run -d --name myfirstweb -p 19191:19191 --restart=always ${{ env.GAR_REPO }}:latest"
 
       - name: Notify Discord
         if: success()
