@@ -36,10 +36,19 @@ jobs:
 
       - name: Deploy to ECS
         run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment
+          STATUS=$(aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }} --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+          if [ "$STATUS" = "ACTIVE" ]; then
+            aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
+          else
+            aws ecs delete-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force 2>/dev/null || true
+            aws ecs create-service \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --service-name ${{ env.ECS_SERVICE }} \
+              --task-definition myfirstweb \
+              --desired-count 1 \
+              --launch-type FARGATE \
+              --network-configuration 'awsvpcConfiguration={subnets=[subnet-0c59d82b06c9a5fcb,subnet-0239c75c7dd3f72c8],securityGroups=[sg-042d68e93dbf4c91c],assignPublicIp=ENABLED}'
+          fi
 
       - name: Notify Discord
         if: success()
