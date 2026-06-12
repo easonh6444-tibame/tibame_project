@@ -31,7 +31,9 @@ jobs:
         run: docker build -t ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }} ./first_project
 
       - name: Run tests
-        run: docker run --rm ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }} python -m pytest test/ -v
+        run: |
+          pip install -r first_project/requirements.txt pytest
+          python -m pytest first_project/test/ -v
 
       - name: Push to ECR
         run: docker push ${{ env.ECR_REGISTRY_NAME }}:${{ github.sha }}
