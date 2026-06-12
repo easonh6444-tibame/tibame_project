@@ -1,0 +1,74 @@
+name: Setup ECS (one-time)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  ECR_IMAGE: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb:latest
+  ECS_CLUSTER: default
+  ECS_SERVICE: myfirstweb-service
+  TASK_FAMILY: myfirstweb
+  CONTAINER_NAME: myfirstweb
+  SG_ID: sg-042d68e93dbf4c91c
+  SUBNETS: subnet-0c59d82b06c9a5fcb,subnet-0239c75c7dd3f72c8
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::802479323365:role/github-action
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create ECS cluster
+        run: aws ecs create-cluster --cluster-name ${{ env.ECS_CLUSTER }} || true
+
+      - name: Create execution role if not exists
+        run: |
+          aws iam get-role --role-name ecsTaskExecutionRole 2>/dev/null || \
+          aws iam create-role --role-name ecsTaskExecutionRole \
+            --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}' && \
+          aws iam attach-role-policy --role-name ecsTaskExecutionRole \
+            --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy || true
+
+      - name: Register task definition
+        run: |
+          aws ecs register-task-definition \
+            --family ${{ env.TASK_FAMILY }} \
+            --network-mode awsvpc \
+            --requires-compatibilities FARGATE \
+            --cpu "256" \
+            --memory "512" \
+            --execution-role-arn arn:aws:iam::802479323365:role/ecsTaskExecutionRole \
+            --container-definitions '[{
+              "name": "${{ env.CONTAINER_NAME }}",
+              "image": "${{ env.ECR_IMAGE }}",
+              "portMappings": [{"containerPort": 19191, "protocol": "tcp"}],
+              "essential": true,
+              "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                  "awslogs-group": "/ecs/myfirstweb",
+                  "awslogs-region": "${{ env.AWS_REGION }}",
+                  "awslogs-stream-prefix": "ecs",
+                  "awslogs-create-group": "true"
+                }
+              }
+            }]'
+
+      - name: Create ECS service
+        run: |
+          aws ecs create-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service-name ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ env.TASK_FAMILY }} \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration 'awsvpcConfiguration={subnets=[${{ env.SUBNETS }}],securityGroups=[${{ env.SG_ID }}],assignPublicIp=ENABLED}'
