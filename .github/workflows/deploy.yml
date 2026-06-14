@@ -2,7 +2,7 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
 
 permissions:
   id-token: write
@@ -43,8 +43,35 @@ jobs:
           retention-days: 1
           path: image.tar.gz
 
-  deploy-aws:
+  terraform:
     needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Authenticate to GCP (for terraform)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Apply
+        run: |
+          cd terraform
+          terraform init
+          terraform apply -auto-approve
+
+  deploy-aws:
+    needs: terraform
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,21 +89,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Authenticate to GCP (for terraform)
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Terraform Apply
-        run: |
-          cd terraform
-          terraform init
-          terraform apply -auto-approve
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
@@ -107,7 +119,7 @@ jobs:
             ${{ secrets.DISCORD_WEBHOOK_URL }}
 
   deploy-gcp:
-    needs: build
+    needs: terraform
     runs-on: ubuntu-latest
     steps:
       - name: Download image artifact
