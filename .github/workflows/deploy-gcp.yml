@@ -18,7 +18,7 @@ env:
   GCE_ZONE: asia-east1-b
 
 jobs:
-  deploy-gcp:
+  push-ecr:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +32,16 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Build and push to ECR
+        run: |
+          docker build -t ${{ env.ECR_IMAGE }} ./first_project
+          docker push ${{ env.ECR_IMAGE }}
+
+  deploy-gcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
@@ -44,17 +54,9 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
 
-      - name: Build image
-        run: docker build -t myfirstweb:latest ./first_project
-
-      - name: Push to ECR
+      - name: Build and push to Artifact Registry
         run: |
-          docker tag myfirstweb:latest ${{ env.ECR_IMAGE }}
-          docker push ${{ env.ECR_IMAGE }}
-
-      - name: Push to Artifact Registry
-        run: |
-          docker tag myfirstweb:latest ${{ env.GAR_REPO }}:latest
+          docker build -t ${{ env.GAR_REPO }}:latest ./first_project
           docker push ${{ env.GAR_REPO }}:latest
 
       - name: Deploy to Cloud Run
