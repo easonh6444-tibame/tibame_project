@@ -9,7 +9,7 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
-  ECR_IMAGE: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb:latest
+  ECR_IMAGE: 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb:latest
   ECS_CLUSTER: default
   ECS_SERVICE: myfirstweb-service
   TASK_FAMILY: myfirstweb
@@ -24,7 +24,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::802479323365:role/github-action
+          role-to-assume: arn:aws:iam::112064333943:role/github-action
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Create ECS cluster
@@ -46,7 +46,7 @@ jobs:
             --requires-compatibilities FARGATE \
             --cpu "256" \
             --memory "512" \
-            --execution-role-arn arn:aws:iam::802479323365:role/ecsTaskExecutionRole \
+            --execution-role-arn arn:aws:iam::112064333943:role/ecsTaskExecutionRole \
             --container-definitions '[{
               "name": "${{ env.CONTAINER_NAME }}",
               "image": "${{ env.ECR_IMAGE }}",
