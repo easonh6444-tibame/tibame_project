@@ -11,7 +11,7 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
-  ECR_REGISTRY_NAME: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb
+  ECR_REGISTRY_NAME: 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb
   ECS_CLUSTER: my-cluster
   ECS_SERVICE: my-service
 
@@ -24,7 +24,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::802479323365:role/github-action
+          role-to-assume: arn:aws:iam::112064333943:role/github-action
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
@@ -52,12 +52,12 @@ jobs:
         if: success()
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"✅ Deploy succeeded! Image \`${{ env.ECR_REGISTRY_NAME }}:latest\` pushed. Commit: \`${{ github.sha }}\`\"}" \
+            -d "{\"content\":\"??Deploy succeeded! Image \`${{ env.ECR_REGISTRY_NAME }}:latest\` pushed. Commit: \`${{ github.sha }}\`\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
 
       - name: Notify Discord on failure
         if: failure()
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"❌ Deploy failed! Commit: \`${{ github.sha }}\`. Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            -d "{\"content\":\"??Deploy failed! Commit: \`${{ github.sha }}\`. Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
