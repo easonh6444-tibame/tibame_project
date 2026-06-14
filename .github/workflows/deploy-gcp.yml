@@ -68,6 +68,7 @@ jobs:
             --allow-unauthenticated
 
       - name: Deploy to GCE
+        continue-on-error: true
         run: |
           gcloud compute ssh ${{ env.GCE_INSTANCE }} \
             --zone ${{ env.GCE_ZONE }} \
