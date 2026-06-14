@@ -17,18 +17,6 @@ provider "google" {
 
 # ── AWS ──────────────────────────────────────────
 
-resource "aws_s3_bucket" "tfstate" {
-  bucket        = "ckc101-13-bucket-name-12345"
-  force_destroy = true
-}
-
-resource "aws_s3_bucket_versioning" "tfstate" {
-  bucket = aws_s3_bucket.tfstate.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
 resource "aws_ecr_repository" "app" {
   name                 = "myfirstweb"
   image_tag_mutability = "MUTABLE"
