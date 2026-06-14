@@ -18,7 +18,8 @@ provider "google" {
 # ── AWS ──────────────────────────────────────────
 
 resource "aws_s3_bucket" "tfstate" {
-  bucket = "ckc101-13-bucket-name-12345"
+  bucket        = "ckc101-13-bucket-name-12345"
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_versioning" "tfstate" {
@@ -31,6 +32,7 @@ resource "aws_s3_bucket_versioning" "tfstate" {
 resource "aws_ecr_repository" "app" {
   name                 = "myfirstweb"
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 }
 
 # ── AWS ECS ──────────────────────────────────────
@@ -40,7 +42,8 @@ resource "aws_ecs_cluster" "app" {
 }
 
 resource "aws_iam_role" "ecs_task_execution" {
-  name = "ecsTaskExecutionRole"
+  name                  = "ecsTaskExecutionRole"
+  force_detach_policies = true
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -113,8 +116,9 @@ resource "google_artifact_registry_repository" "app" {
 }
 
 resource "google_cloud_run_v2_service" "app" {
-  name     = "myfirstweb"
-  location = "asia-east1"
+  name               = "myfirstweb"
+  location           = "asia-east1"
+  deletion_protection = false
 
   template {
     containers {
