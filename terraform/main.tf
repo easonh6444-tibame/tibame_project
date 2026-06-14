@@ -103,24 +103,4 @@ resource "google_artifact_registry_repository" "app" {
   format        = "DOCKER"
 }
 
-resource "google_cloud_run_v2_service" "app" {
-  name               = "myfirstweb"
-  location           = "asia-east1"
-  deletion_protection = false
 
-  template {
-    containers {
-      image = "asia-east1-docker.pkg.dev/ckc101-13/myfirstweb/myfirstweb:latest"
-      ports {
-        container_port = 19191
-      }
-    }
-  }
-}
-
-resource "google_cloud_run_v2_service_iam_member" "public" {
-  name     = google_cloud_run_v2_service.app.name
-  location = google_cloud_run_v2_service.app.location
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
