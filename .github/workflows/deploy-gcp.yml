@@ -10,7 +10,7 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
-  ECR_IMAGE: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb:latest
+  ECR_IMAGE: 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb:latest
   GCP_REGION: asia-east1
   GAR_REPO: asia-east1-docker.pkg.dev/ckc101-13/myfirstweb/myfirstweb
   CLOUD_RUN_SERVICE: myfirstweb
@@ -79,12 +79,12 @@ jobs:
         if: success()
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"✅ GCP deploy succeeded! Cloud Run + GCE updated. Commit: \`${{ github.sha }}\`\"}" \
+            -d "{\"content\":\"??GCP deploy succeeded! Cloud Run + GCE updated. Commit: \`${{ github.sha }}\`\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
 
       - name: Notify Discord on failure
         if: failure()
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"❌ GCP deploy failed! Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            -d "{\"content\":\"??GCP deploy failed! Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
