@@ -44,12 +44,12 @@ jobs:
         if: success()
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"??ECS deploy succeeded! Commit: \`${{ github.sha }}\`\"}" \
+            -d "{\"content\":\"✅ ECS deploy succeeded! Commit: \`${{ github.sha }}\`\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
 
       - name: Notify Discord on failure
         if: failure()
         run: |
           curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"??ECS deploy failed! Commit: \`${{ github.sha }}\`. Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            -d "{\"content\":\"❌ ECS deploy failed! Commit: \`${{ github.sha }}\`. Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
             ${{ secrets.DISCORD_WEBHOOK_URL }}
