@@ -1,9 +1,8 @@
 name: Deploy to GCP (GCE + Cloud Run)
 
 on:
-  workflow_run:
-    workflows: ["Deploy to ECS"]
-    types: [completed]
+  push:
+    branches: [main]
 
 permissions:
   id-token: write
@@ -12,7 +11,6 @@ permissions:
 env:
   AWS_REGION: ap-northeast-1
   ECR_IMAGE: 802479323365.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb:latest
-  GCP_PROJECT: ckc101-13
   GCP_REGION: asia-east1
   GAR_REPO: asia-east1-docker.pkg.dev/ckc101-13/myfirstweb/myfirstweb
   CLOUD_RUN_SERVICE: myfirstweb
@@ -22,21 +20,17 @@ env:
 jobs:
   deploy-gcp:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::802479323365:role/github-action
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Pull image from ECR
-        run: docker pull ${{ env.ECR_IMAGE }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -50,9 +44,17 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
 
-      - name: Tag and push to Artifact Registry
+      - name: Build image
+        run: docker build -t myfirstweb:latest ./first_project
+
+      - name: Push to ECR
         run: |
-          docker tag ${{ env.ECR_IMAGE }} ${{ env.GAR_REPO }}:latest
+          docker tag myfirstweb:latest ${{ env.ECR_IMAGE }}
+          docker push ${{ env.ECR_IMAGE }}
+
+      - name: Push to Artifact Registry
+        run: |
+          docker tag myfirstweb:latest ${{ env.GAR_REPO }}:latest
           docker push ${{ env.GAR_REPO }}:latest
 
       - name: Deploy to Cloud Run
