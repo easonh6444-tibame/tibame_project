@@ -68,10 +68,11 @@ jobs:
         run: |
           cd terraform
           terraform init
-          # If Cloud Run service exists in state but not in GCP, remove stale state
-          # so Terraform recreates it with the placeholder image instead of the stale one
-          terraform state list 2>/dev/null | grep -q "google_cloud_run_v2_service.app" && \
-            terraform state rm google_cloud_run_v2_service.app || true
+          # Import existing Cloud Run service into state if not already tracked
+          # This prevents 409 "already exists" when state is out of sync with GCP
+          terraform state list 2>/dev/null | grep -q "google_cloud_run_v2_service.app" || \
+            terraform import google_cloud_run_v2_service.app \
+              projects/ckc101-13/locations/asia-east1/services/myfirstweb || true
           terraform apply -auto-approve
 
   deploy-aws:
