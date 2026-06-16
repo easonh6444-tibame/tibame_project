@@ -68,6 +68,10 @@ jobs:
         run: |
           cd terraform
           terraform init
+          # If Cloud Run service exists in state but not in GCP, remove stale state
+          # so Terraform recreates it with the placeholder image instead of the stale one
+          terraform state list 2>/dev/null | grep -q "google_cloud_run_v2_service.app" && \
+            terraform state rm google_cloud_run_v2_service.app || true
           terraform apply -auto-approve
 
   deploy-aws:
