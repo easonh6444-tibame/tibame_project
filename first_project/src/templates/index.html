@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nebula Dash - Control Center</title>
+    <title>Nebula Dash v2 - Control Center</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -25,7 +25,7 @@
                 <span class="brand-logo">🌌</span>
                 <div>
                     <h1 id="app-title">Nebula Dash</h1>
-                    <p class="subtitle">Next-gen Application Control Panel</p>
+                    <p class="subtitle">v2 - Next-gen Application Control Panel</p>
                 </div>
             </div>
             <div class="server-meta">
@@ -49,7 +49,7 @@
                     <span class="value" style="color:#ffd700" id="live-clock">--:--:--</span>
                 </div>
                 <div class="meta-item">
-                    <span class="label">Your IP</span>
+                    <span class="label">Server IP</span>
                     <span class="value font-mono" id="client-ip">...</span>
                 </div>
             </div>
@@ -391,8 +391,8 @@
         tick(); setInterval(tick, 1000);
     })();
 
-    // ── Client IP ────────────────────────────────────────────────────────────
-    fetch('https://api.ipify.org?format=json')
+    // ── Server IP ────────────────────────────────────────────────────────────
+    fetch('/api/server-ip')
       .then(r => r.json())
       .then(d => document.getElementById('client-ip').textContent = d.ip)
       .catch(() => document.getElementById('client-ip').textContent = 'N/A');
