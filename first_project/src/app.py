@@ -2,6 +2,7 @@ from flask import Flask, jsonify, render_template, request, abort
 import time
 import random
 import os
+import socket
 
 # ── AWS S3 configuration (read from environment variables — never hardcode) ──
 # Set these in your shell / .env / Docker environment:
@@ -144,6 +145,15 @@ def toggle_task_completion(task_id):
         
     task_to_update['completed'] = bool(request.json['completed'])
     return jsonify(task_to_update), 200
+
+@app.route('/api/server-ip')
+def server_ip():
+    """Returns the server's IP address."""
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        ip = '127.0.0.1'
+    return jsonify({'ip': ip})
 
 @app.route('/feature1')
 def feature1():
