@@ -98,7 +98,9 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: Push to ECR
         run: |
-          aws ecr-get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPO }}
+          # 修正指令：ecr-get-login-password -> ecr get-login-password
+          # 修正登入點：使用 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com 而不是完整的 ECR_REPO
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com
           docker tag app:test ${{ env.ECR_REPO }}:${{ github.sha }}
           docker tag app:test ${{ env.ECR_REPO }}:latest
           docker push ${{ env.ECR_REPO }}:${{ github.sha }}
