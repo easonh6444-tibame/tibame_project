@@ -175,7 +175,14 @@ jobs:
         run: |
           cd terraform
           terraform init
-          # 同步版本資訊回 State，確保下次運行不會有偏差
+          
+          # 自動匯入 Cloud Run (如果已由 CLI 建立但不在 State 中)
+          if ! terraform state list | grep -q "google_cloud_run_v2_service.app"; then
+            echo "Importing Cloud Run service..."
+            terraform import google_cloud_run_v2_service.app[0] projects/ckc101-13/locations/asia-east1/services/myfirstweb || true
+          fi
+
+          # 同步版本資訊回 State
           terraform apply -auto-approve \
             -var="enable_compute=true" \
             -var="app_image_tag=${{ github.sha }}"
