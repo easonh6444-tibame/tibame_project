@@ -53,6 +53,7 @@ resource "aws_iam_role_policy_attachment" "ecs_cloudwatch" {
 }
 
 resource "aws_ecs_task_definition" "app" {
+  count                    = var.enable_compute ? 1 : 0
   family                   = "myfirstweb"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
@@ -62,7 +63,7 @@ resource "aws_ecs_task_definition" "app" {
 
   container_definitions = jsonencode([{
     name      = "myfirstweb"
-    image     = "${aws_ecr_repository.app.repository_url}:latest"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.app_image_tag}"
     essential = true
     portMappings = [{ containerPort = 19191, protocol = "tcp" }]
     logConfiguration = {
@@ -78,9 +79,10 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 resource "aws_ecs_service" "app" {
+  count           = var.enable_compute ? 1 : 0
   name            = "myfirstweb-service"
   cluster         = aws_ecs_cluster.app.id
-  task_definition = aws_ecs_task_definition.app.arn
+  task_definition = aws_ecs_task_definition.app[0].arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
@@ -88,10 +90,6 @@ resource "aws_ecs_service" "app" {
     subnets          = ["subnet-02ac26d5a7b97921e", "subnet-0fbee793671206e02", "subnet-0c7ee4247d3ddd971"]
     security_groups  = ["sg-02a12b29b431c247f"]
     assign_public_ip = true
-  }
-
-  lifecycle {
-    ignore_changes = [task_definition]
   }
 }
 
@@ -104,27 +102,25 @@ resource "google_artifact_registry_repository" "app" {
 }
 
 resource "google_cloud_run_v2_service" "app" {
+  count               = var.enable_compute ? 1 : 0
   name                = "myfirstweb"
   location            = "asia-east1"
   deletion_protection = false
 
   template {
     containers {
-      image = "us-docker.pkg.dev/cloudrun/container/hello"
+      image = "asia-east1-docker.pkg.dev/ckc101-13/myfirstweb/myfirstweb:${var.app_image_tag}"
       ports {
         container_port = 19191
       }
     }
   }
-
-  lifecycle {
-    ignore_changes = [template]
-  }
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public" {
-  name     = google_cloud_run_v2_service.app.name
-  location = google_cloud_run_v2_service.app.location
+  count    = var.enable_compute ? 1 : 0
+  name     = google_cloud_run_v2_service.app[0].name
+  location = google_cloud_run_v2_service.app[0].location
   role     = "roles/run.invoker"
   member   = "allUsers"
 }

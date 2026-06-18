@@ -1,4 +1,4 @@
-name: Build and Deploy
+name: Build and Deploy (Optimized)
 
 on:
   push:
@@ -10,31 +10,37 @@ permissions:
 
 env:
   AWS_REGION: ap-northeast-1
-  ECR_IMAGE: 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb:latest
-  ECS_CLUSTER: default
-  ECS_SERVICE: myfirstweb-service
+  ECR_REPO: 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb
   GCP_REGION: asia-east1
   GAR_REPO: asia-east1-docker.pkg.dev/ckc101-13/myfirstweb/myfirstweb
-  CLOUD_RUN_SERVICE: myfirstweb
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build image
-        run: docker build -t app:latest ./first_project
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and Load image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./first_project
+          load: true
+          tags: app:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Test image
         run: |
-          docker run -d --name test -p 19191:19191 app:latest
+          docker run -d --name test -p 19191:19191 app:test
           sleep 5
           curl -f http://localhost:19191/api/status
           docker rm -f test
 
-      - name: Save image
-        run: docker save app:latest | gzip > image.tar.gz
+      - name: Save image for next jobs
+        run: docker save app:test | gzip > image.tar.gz
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -43,8 +49,8 @@ jobs:
           retention-days: 1
           path: image.tar.gz
 
-  terraform:
-    needs: build
+  infra-base:
+    needs: build-and-test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +61,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Authenticate to GCP (for terraform)
+      - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -64,23 +70,16 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Apply
+      - name: Terraform Apply (Base)
         run: |
           cd terraform
           terraform init
-          # Import existing Cloud Run service into state if not already tracked
-          # This prevents 409 "already exists" when state is out of sync with GCP
-          terraform state list 2>/dev/null | grep -q "google_cloud_run_v2_service.app" || \
-            terraform import google_cloud_run_v2_service.app \
-              projects/ckc101-13/locations/asia-east1/services/myfirstweb || true
-          terraform apply -auto-approve
+          terraform apply -auto-approve -var="enable_compute=false"
 
-  deploy-aws:
-    needs: terraform
+  push-images:
+    needs: infra-base
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
@@ -98,42 +97,40 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Push to ECR
-        run: |
-          docker tag app:latest ${{ env.ECR_IMAGE }}
-          docker push ${{ env.ECR_IMAGE }}
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Deploy to ECS
-        run: |
-          aws ecs update-service \
-            --cluster ${{ env.ECS_CLUSTER }} \
-            --service ${{ env.ECS_SERVICE }} \
-            --force-new-deployment
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
 
-      - name: Notify Discord
-        if: always()
+      - name: Push to Registries
         run: |
-          STATUS="${{ job.status }}"
-          if [ "$STATUS" = "success" ]; then
-            MSG="✅ ECS deploy succeeded! Commit: \`${{ github.sha }}\`"
-          else
-            MSG="❌ ECS deploy failed! Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          fi
-          curl -H "Content-Type: application/json" \
-            -d "{\"content\":\"$MSG\"}" \
-            ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # AWS ECR
+          docker tag app:test ${{ env.ECR_REPO }}:${{ github.sha }}
+          docker tag app:test ${{ env.ECR_REPO }}:latest
+          docker push ${{ env.ECR_REPO }}:${{ github.sha }}
+          docker push ${{ env.ECR_REPO }}:latest
+          
+          # GCP GAR
+          docker tag app:test ${{ env.GAR_REPO }}:${{ github.sha }}
+          docker tag app:test ${{ env.GAR_REPO }}:latest
+          docker push ${{ env.GAR_REPO }}:${{ github.sha }}
+          docker push ${{ env.GAR_REPO }}:latest
 
-  deploy-gcp:
-    needs: terraform
+  deploy-compute:
+    needs: push-images
     runs-on: ubuntu-latest
     steps:
-      - name: Download image artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: app-image
+      - uses: actions/checkout@v4
 
-      - name: Load image
-        run: docker load < image.tar.gz
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -141,33 +138,25 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
-
-      - name: Push to Artifact Registry
+      - name: Terraform Apply (Full Deploy)
         run: |
-          docker tag app:latest ${{ env.GAR_REPO }}:latest
-          docker push ${{ env.GAR_REPO }}:latest
-
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE }} \
-            --image ${{ env.GAR_REPO }}:latest \
-            --region ${{ env.GCP_REGION }} \
-            --port 19191 \
-            --allow-unauthenticated
+          cd terraform
+          terraform init
+          terraform apply -auto-approve \
+            -var="enable_compute=true" \
+            -var="app_image_tag=${{ github.sha }}"
 
       - name: Notify Discord
         if: always()
         run: |
           STATUS="${{ job.status }}"
           if [ "$STATUS" = "success" ]; then
-            MSG="✅ GCP deploy succeeded! Cloud Run updated. Commit: \`${{ github.sha }}\`"
+            MSG="✅ Deployment Succeeded! Version: \`${{ github.sha }}\`"
           else
-            MSG="❌ GCP deploy failed! Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            MSG="❌ Deployment Failed! Check logs."
           fi
           curl -H "Content-Type: application/json" \
             -d "{\"content\":\"$MSG\"}" \
