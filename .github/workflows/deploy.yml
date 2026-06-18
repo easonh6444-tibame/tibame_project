@@ -177,18 +177,16 @@ jobs:
           terraform init
           
           echo "Attempting to import existing resources to sync state..."
+          # 定義共用變數以確保 import 時 count=1，否則 [0] 索引會失效
+          TF_VARS="-var='enable_compute=true' -var='app_image_tag=${{ github.sha }}'"
           
-          # 無條件嘗試匯入 GCP 資源 (若已存在則匯入，若已在 State 中或不存在則忽略錯誤)
-          terraform import google_cloud_run_v2_service.app[0] projects/ckc101-13/locations/asia-east1/services/myfirstweb || echo "Cloud Run service already in state or not found, skipping import."
-          terraform import google_cloud_run_v2_service_iam_member.public[0] "projects/ckc101-13/locations/asia-east1/services/myfirstweb roles/run.invoker allUsers" || echo "Cloud Run IAM already in state or not found, skipping import."
-          
-          # 無條件嘗試匯入 AWS 資源
-          terraform import aws_ecs_service.app[0] arn:aws:ecs:ap-northeast-1:112064333943:service/default/myfirstweb-service || echo "ECS service already in state or not found, skipping import."
+          # 執行匯入時必須帶入變數
+          terraform import $TF_VARS google_cloud_run_v2_service.app[0] projects/ckc101-13/locations/asia-east1/services/myfirstweb || echo "Cloud Run service skip."
+          terraform import $TF_VARS google_cloud_run_v2_service_iam_member.public[0] "projects/ckc101-13/locations/asia-east1/services/myfirstweb roles/run.invoker allUsers" || echo "Cloud Run IAM skip."
+          terraform import $TF_VARS aws_ecs_service.app[0] arn:aws:ecs:ap-northeast-1:112064333943:service/default/myfirstweb-service || echo "ECS service skip."
 
-          # 最後執行 Apply，這時應該會變成 0 to add, 1 to change (或 No changes)
-          terraform apply -auto-approve \
-            -var="enable_compute=true" \
-            -var="app_image_tag=${{ github.sha }}"
+          # 最後執行 Apply
+          terraform apply -auto-approve $TF_VARS
 
       - name: Notify Discord
         if: always()
