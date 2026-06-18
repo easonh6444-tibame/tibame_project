@@ -1,4 +1,4 @@
-name: Build and Deploy (Optimized)
+name: Build and Deploy (Max Speed Parallel)
 
 on:
   push:
@@ -13,16 +13,46 @@ env:
   ECR_REPO: 112064333943.dkr.ecr.ap-northeast-1.amazonaws.com/myfirstweb
   GCP_REGION: asia-east1
   GAR_REPO: asia-east1-docker.pkg.dev/ckc101-13/myfirstweb/myfirstweb
+  CLOUD_RUN_SERVICE: myfirstweb
+  ECS_CLUSTER: default
+  ECS_SERVICE: myfirstweb-service
 
 jobs:
+  # --------------------------------------------------------------------------
+  # 1. 第一階段：建立 Registry (極速模式) 與 本地 Build & Test 同時開始
+  # --------------------------------------------------------------------------
+  
+  infra-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      - name: Terraform Apply (Registries Only)
+        run: |
+          cd terraform
+          terraform init
+          # 使用 -target 避開對運算資源的檢查與刪除，達到秒級初始化
+          terraform apply -auto-approve \
+            -target=aws_ecr_repository.app \
+            -target=google_artifact_registry_repository.app
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Build and Load image
         uses: docker/build-push-action@v5
         with:
@@ -31,17 +61,14 @@ jobs:
           tags: app:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
       - name: Test image
         run: |
           docker run -d --name test -p 19191:19191 app:test
           sleep 5
           curl -f http://localhost:19191/api/status
           docker rm -f test
-
       - name: Save image for next jobs
         run: docker save app:test | gzip > image.tar.gz
-
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
@@ -49,102 +76,97 @@ jobs:
           retention-days: 1
           path: image.tar.gz
 
-  infra-base:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  # --------------------------------------------------------------------------
+  # 2. 第二階段：雙雲並行部署 (AWS & GCP 同時執行)
+  # --------------------------------------------------------------------------
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Apply (Base)
-        run: |
-          cd terraform
-          terraform init
-          terraform apply -auto-approve -var="enable_compute=false"
-
-  push-images:
-    needs: infra-base
+  deploy-aws:
+    needs: [infra-base, build-and-test]
     runs-on: ubuntu-latest
     steps:
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
           name: app-image
-
       - name: Load image
         run: docker load < image.tar.gz
-
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
-
-      - name: Push to Registries
+      - name: Push to ECR
         run: |
-          # AWS ECR
+          aws ecr-get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REPO }}
           docker tag app:test ${{ env.ECR_REPO }}:${{ github.sha }}
           docker tag app:test ${{ env.ECR_REPO }}:latest
           docker push ${{ env.ECR_REPO }}:${{ github.sha }}
           docker push ${{ env.ECR_REPO }}:latest
-          
-          # GCP GAR
-          docker tag app:test ${{ env.GAR_REPO }}:${{ github.sha }}
-          docker tag app:test ${{ env.GAR_REPO }}:latest
-          docker push ${{ env.GAR_REPO }}:${{ github.sha }}
-          docker push ${{ env.GAR_REPO }}:latest
+      - name: Deploy to ECS (CLI)
+        run: |
+          # 直接用 CLI 更新以避開 Terraform State Lock
+          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
 
-  deploy-compute:
-    needs: push-images
+  deploy-gcp:
+    needs: [infra-base, build-and-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
+          name: app-image
+      - name: Load image
+        run: docker load < image.tar.gz
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Push to GAR
+        run: |
+          gcloud auth configure-docker asia-east1-docker.pkg.dev --quiet
+          docker tag app:test ${{ env.GAR_REPO }}:${{ github.sha }}
+          docker tag app:test ${{ env.GAR_REPO }}:latest
+          docker push ${{ env.GAR_REPO }}:${{ github.sha }}
+          docker push ${{ env.GAR_REPO }}:latest
+      - name: Deploy to Cloud Run (CLI)
+        run: |
+          # 直接用 CLI 更新，速度最快
+          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE }} \
+            --image ${{ env.GAR_REPO }}:${{ github.sha }} \
+            --region ${{ env.GCP_REGION }} \
+            --port 19191 \
+            --allow-unauthenticated
 
+  # --------------------------------------------------------------------------
+  # 3. 第三階段：Terraform 狀態同步
+  # --------------------------------------------------------------------------
+
+  infra-sync:
+    needs: [deploy-aws, deploy-gcp]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Apply (Full Deploy)
+      - name: Terraform Sync
         run: |
           cd terraform
           terraform init
+          # 同步版本資訊回 State，確保下次運行不會有偏差
           terraform apply -auto-approve \
             -var="enable_compute=true" \
             -var="app_image_tag=${{ github.sha }}"
@@ -156,7 +178,7 @@ jobs:
           if [ "$STATUS" = "success" ]; then
             MSG="✅ Deployment Succeeded! Version: \`${{ github.sha }}\`"
           else
-            MSG="❌ Deployment Failed! Check logs."
+            MSG="⚠️ Deployment finished with some issues. Check logs."
           fi
           curl -H "Content-Type: application/json" \
             -d "{\"content\":\"$MSG\"}" \
