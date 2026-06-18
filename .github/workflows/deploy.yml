@@ -39,14 +39,15 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
-      - name: Terraform Apply (Registries Only)
+      - name: Terraform Apply (Registries & Cluster)
         run: |
           cd terraform
           terraform init
-          # 使用 -target 避開對運算資源的檢查與刪除，達到秒級初始化
+          # 加入 aws_ecs_cluster.app 到目標，確保 Cluster 存在
           terraform apply -auto-approve \
             -target=aws_ecr_repository.app \
-            -target=google_artifact_registry_repository.app
+            -target=google_artifact_registry_repository.app \
+            -target=aws_ecs_cluster.app
 
   build-and-test:
     runs-on: ubuntu-latest
@@ -107,8 +108,13 @@ jobs:
           docker push ${{ env.ECR_REPO }}:latest
       - name: Deploy to ECS (CLI)
         run: |
-          # 直接用 CLI 更新以避開 Terraform State Lock
-          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
+          # 檢查服務是否存在，避免初次部署時報錯
+          if aws ecs describe-services --cluster ${{ env.ECS_CLUSTER }} --services ${{ env.ECS_SERVICE }} --query "services[0].status" --output text | grep -q "ACTIVE"; then
+            echo "Service exists, updating..."
+            aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} --service ${{ env.ECS_SERVICE }} --force-new-deployment
+          else
+            echo "Service does not exist yet. Terraform will create it in the next job."
+          fi
 
   deploy-gcp:
     needs: [infra-base, build-and-test]
