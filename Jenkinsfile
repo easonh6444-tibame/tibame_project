@@ -9,9 +9,7 @@ pipeline {
 
     stages {
         stage('Checkout') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
 
         stage('Build') {
@@ -27,7 +25,7 @@ pipeline {
                     CONTAINER_IP=\$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-${TAG})
                     for i in \$(seq 1 15); do
                         curl -sf http://\${CONTAINER_IP}:19191/api/status && break
-                        echo "Waiting for app... \${i}/15"
+                        echo "Waiting... \${i}/15"
                         sleep 2
                     done
                     curl -f http://\${CONTAINER_IP}:19191/api/status
@@ -35,9 +33,7 @@ pipeline {
                 """
             }
             post {
-                failure {
-                    sh "docker rm -f test-${TAG} || true"
-                }
+                failure { sh "docker rm -f test-${TAG} || true" }
             }
         }
 
@@ -48,23 +44,34 @@ pipeline {
             }
         }
 
-        stage('Deploy') {
+        // dev branch → deploy to test server (192.168.0.65)
+        stage('Deploy to Test') {
+            when { branch 'dev' }
             steps {
-                sh """
-                    docker rm -f tibame_app || true
-                    docker run -d \
-                        --name tibame_app \
-                        --restart=unless-stopped \
-                        -p 19191:19191 \
-                        ${IMAGE}:${TAG}
-                """
+                sshagent(['test-server-ssh']) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no root@192.168.0.65 '
+                            docker pull ${IMAGE}:${TAG} &&
+                            docker rm -f tibame_app || true &&
+                            docker run -d --name tibame_app --restart=unless-stopped -p 19191:19191 ${IMAGE}:${TAG}
+                        '
+                    """
+                }
+            }
+        }
+
+        // main branch → placeholder for cloud deployment
+        stage('Deploy to Cloud') {
+            when { branch 'main' }
+            steps {
+                echo "TODO: deploy ${IMAGE}:${TAG} to cloud (AWS/GCP)"
             }
         }
     }
 
     post {
-        success { echo "✅ Build ${TAG} deployed successfully" }
-        failure { echo "❌ Build ${TAG} failed" }
+        success { echo "✅ Build ${TAG} (${env.BRANCH_NAME}) deployed successfully" }
+        failure { echo "❌ Build ${TAG} (${env.BRANCH_NAME}) failed" }
         always  { sh "docker rmi ${IMAGE}:${TAG} || true" }
     }
 }
