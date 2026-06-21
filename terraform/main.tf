@@ -126,3 +126,96 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
 }
 
 
+
+# ── AWS OIDC (Jenkins) ───────────────────────────
+
+data "tls_certificate" "jenkins" {
+  url = "https://jenkins.buy0050.xyz/oidc"
+}
+
+resource "aws_iam_openid_connect_provider" "jenkins" {
+  url             = "https://jenkins.buy0050.xyz/oidc"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.jenkins.certificates[0].sha1_fingerprint]
+}
+
+resource "aws_iam_role" "jenkins_deploy" {
+  name                  = "jenkins-deploy"
+  force_detach_policies = true
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = aws_iam_openid_connect_provider.jenkins.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = {
+          "jenkins.buy0050.xyz/oidc:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "jenkins_ecr" {
+  role       = aws_iam_role.jenkins_deploy.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
+}
+
+resource "aws_iam_role_policy_attachment" "jenkins_ecs" {
+  role       = aws_iam_role.jenkins_deploy.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonECS_FullAccess"
+}
+
+# ── GCP Workload Identity (Jenkins) ──────────────
+
+resource "google_iam_workload_identity_pool" "jenkins" {
+  workload_identity_pool_id = "jenkins-pool"
+  display_name              = "Jenkins OIDC Pool"
+}
+
+resource "google_iam_workload_identity_pool_provider" "jenkins" {
+  workload_identity_pool_id          = google_iam_workload_identity_pool.jenkins.workload_identity_pool_id
+  workload_identity_pool_provider_id = "jenkins-provider"
+  oidc {
+    issuer_uri = "https://jenkins.buy0050.xyz/oidc"
+  }
+  attribute_mapping = {
+    "google.subject" = "assertion.sub"
+  }
+}
+
+resource "google_service_account" "jenkins_deploy" {
+  account_id   = "jenkins-deploy"
+  display_name = "Jenkins Deploy SA"
+}
+
+resource "google_project_iam_member" "jenkins_artifact_writer" {
+  project = "ckc101-13"
+  role    = "roles/artifactregistry.writer"
+  member  = "serviceAccount:${google_service_account.jenkins_deploy.email}"
+}
+
+resource "google_project_iam_member" "jenkins_run_developer" {
+  project = "ckc101-13"
+  role    = "roles/run.developer"
+  member  = "serviceAccount:${google_service_account.jenkins_deploy.email}"
+}
+
+resource "google_service_account_iam_member" "jenkins_wif_binding" {
+  service_account_id = google_service_account.jenkins_deploy.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.jenkins.name}/*"
+}
+
+output "aws_jenkins_role_arn" {
+  value = aws_iam_role.jenkins_deploy.arn
+}
+
+output "gcp_workload_identity_provider" {
+  value = "projects/${google_service_account.jenkins_deploy.project}/locations/global/workloadIdentityPools/${google_iam_workload_identity_pool.jenkins.workload_identity_pool_id}/providers/${google_iam_workload_identity_pool_provider.jenkins.workload_identity_pool_provider_id}"
+}
+
+output "gcp_service_account" {
+  value = google_service_account.jenkins_deploy.email
+}

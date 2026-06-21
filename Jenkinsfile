@@ -60,11 +60,84 @@ pipeline {
             }
         }
 
-        // main branch → placeholder for cloud deployment
+        // main branch → deploy to AWS (ECR+ECS) and GCP (Artifact Registry+Cloud Run) via Jenkins OIDC
         stage('Deploy to Cloud') {
             when { branch 'main' }
+            environment {
+                AWS_ROLE_ARN     = credentials('aws-jenkins-role-arn')
+                AWS_REGION       = "ap-northeast-1"
+                AWS_ECR_REGISTRY = "992382492557.dkr.ecr.ap-northeast-1.amazonaws.com"
+                ECR_IMAGE        = "${AWS_ECR_REGISTRY}/myfirstweb"
+                GCP_PROJECT      = "ckc101-13"
+                GCP_REGION       = "asia-east1"
+                GAR_IMAGE        = "${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/myfirstweb/myfirstweb"
+                GCP_WIF_PROVIDER = credentials('gcp-wif-provider')
+                GCP_SA_EMAIL     = credentials('gcp-sa-email')
+            }
             steps {
-                echo "TODO: deploy ${IMAGE}:${TAG} to cloud (AWS/GCP)"
+                withCredentials([
+                    string(credentialsId: 'jenkins-oidc-aws', variable: 'JWT_AWS'),
+                    string(credentialsId: 'jenkins-oidc-gcp', variable: 'JWT_GCP')
+                ]) {
+                    sh '''#!/bin/bash
+set -euo pipefail
+
+# ── 1. AWS: assume role with Jenkins OIDC token ──
+CREDS=$(aws sts assume-role-with-web-identity \
+  --role-arn "${AWS_ROLE_ARN}" \
+  --role-session-name jenkins-${BUILD_NUMBER} \
+  --web-identity-token "${JWT_AWS}" \
+  --duration-seconds 3600 \
+  --query 'Credentials' --output json)
+
+export AWS_ACCESS_KEY_ID=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['AccessKeyId'])")
+export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['SecretAccessKey'])")
+export AWS_SESSION_TOKEN=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['SessionToken'])")
+
+aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REGISTRY}
+docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:${TAG}
+docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:latest
+docker push ${ECR_IMAGE}:${TAG}
+docker push ${ECR_IMAGE}:latest
+
+aws ecs update-service --cluster default --service myfirstweb-service \
+  --force-new-deployment --region ${AWS_REGION} > /dev/null
+
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+
+# ── 2. GCP: exchange JWT via Workload Identity Federation ──
+GCP_TOKEN=$(curl -sf -X POST "https://sts.googleapis.com/v1/token" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"grantType\": \"urn:ietf:params:oauth:grant-type:token-exchange\",
+    \"audience\": \"//iam.googleapis.com/${GCP_WIF_PROVIDER}\",
+    \"subjectTokenType\": \"urn:ietf:params:oauth:token-type:id_token\",
+    \"requestedTokenType\": \"urn:ietf:params:oauth:token-type:access_token\",
+    \"subjectToken\": \"${JWT_GCP}\",
+    \"scope\": \"https://www.googleapis.com/auth/cloud-platform\"
+  }" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# Impersonate SA to get a scoped token
+SA_TOKEN=$(curl -sf -X POST \
+  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${GCP_SA_EMAIL}:generateAccessToken" \
+  -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"]}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
+
+docker login -u oauth2accesstoken -p "${SA_TOKEN}" ${GCP_REGION}-docker.pkg.dev
+docker tag ${IMAGE}:${TAG} ${GAR_IMAGE}:${TAG}
+docker tag ${IMAGE}:${TAG} ${GAR_IMAGE}:latest
+docker push ${GAR_IMAGE}:${TAG}
+docker push ${GAR_IMAGE}:latest
+
+gcloud run services update myfirstweb \
+  --image ${GAR_IMAGE}:${TAG} \
+  --region ${GCP_REGION} \
+  --project ${GCP_PROJECT} \
+  --access-token-file <(echo ${SA_TOKEN})
+'''
+                }
             }
         }
     }
