@@ -66,7 +66,7 @@ pipeline {
             environment {
                 AWS_ROLE_ARN     = credentials('aws-jenkins-role-arn')
                 AWS_REGION       = "ap-northeast-1"
-                AWS_ECR_REGISTRY = "992382492557.dkr.ecr.ap-northeast-1.amazonaws.com"
+                AWS_ECR_REGISTRY = "112064333943.dkr.ecr.ap-northeast-1.amazonaws.com"
                 ECR_IMAGE        = "${AWS_ECR_REGISTRY}/myfirstweb"
                 GCP_PROJECT      = "ckc101-13"
                 GCP_REGION       = "asia-east1"
