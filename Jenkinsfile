@@ -160,7 +160,17 @@ terraform apply -input=false -auto-approve \
   -target=aws_ecs_task_definition.app \
   -target=aws_ecs_service.app \
   -target=google_cloud_run_v2_service.app \
-  -target=google_cloud_run_v2_service_iam_member.public
+  -target=google_cloud_run_v2_service_iam_member.public \
+  -target=google_compute_region_network_endpoint_group.app \
+  -target=google_compute_backend_service.app \
+  -target=google_compute_url_map.app \
+  -target=google_compute_managed_ssl_certificate.app \
+  -target=google_compute_target_https_proxy.app \
+  -target=google_compute_global_address.app \
+  -target=google_compute_global_forwarding_rule.https \
+  -target=google_compute_url_map.https_redirect \
+  -target=google_compute_target_http_proxy.app \
+  -target=google_compute_global_forwarding_rule.http
 cd ..
 unset GOOGLE_OAUTH_ACCESS_TOKEN
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN

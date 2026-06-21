@@ -126,6 +126,98 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   member   = "allUsers"
 }
 
+# ── GCP External HTTPS Load Balancer → Cloud Run (custom domain) ──
+# 給 app 一個固定的 anycast IP，讓 ${var.app_domain} 用 A 記錄直接指向 GCP。
+# 部署起來 LB 自動把流量導到 Cloud Run service，憑證由 Google 自動簽發。
+
+# Serverless NEG：把 Cloud Run service 接成 LB 的 backend
+resource "google_compute_region_network_endpoint_group" "app" {
+  count                 = var.enable_compute ? 1 : 0
+  name                  = "myfirstweb-neg"
+  region                = "asia-east1"
+  network_endpoint_type = "SERVERLESS"
+  cloud_run {
+    service = google_cloud_run_v2_service.app[0].name
+  }
+}
+
+resource "google_compute_backend_service" "app" {
+  count                 = var.enable_compute ? 1 : 0
+  name                  = "myfirstweb-backend"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  protocol              = "HTTPS"
+  backend {
+    group = google_compute_region_network_endpoint_group.app[0].id
+  }
+}
+
+resource "google_compute_url_map" "app" {
+  count           = var.enable_compute ? 1 : 0
+  name            = "myfirstweb-urlmap"
+  default_service = google_compute_backend_service.app[0].id
+}
+
+# Google 託管 SSL 憑證（需 ${var.app_domain} 的 DNS 指到下方 IP 後才會 ACTIVE）
+resource "google_compute_managed_ssl_certificate" "app" {
+  count = var.enable_compute ? 1 : 0
+  name  = "myfirstweb-cert"
+  managed {
+    domains = [var.app_domain]
+  }
+}
+
+resource "google_compute_target_https_proxy" "app" {
+  count            = var.enable_compute ? 1 : 0
+  name             = "myfirstweb-https-proxy"
+  url_map          = google_compute_url_map.app[0].id
+  ssl_certificates = [google_compute_managed_ssl_certificate.app[0].id]
+}
+
+# 固定的對外 IP（這就是你要在 Cloudflare 用 A 記錄指向的 IP）
+resource "google_compute_global_address" "app" {
+  count = var.enable_compute ? 1 : 0
+  name  = "myfirstweb-ip"
+}
+
+resource "google_compute_global_forwarding_rule" "https" {
+  count                 = var.enable_compute ? 1 : 0
+  name                  = "myfirstweb-fr-https"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  port_range            = "443"
+  target                = google_compute_target_https_proxy.app[0].id
+  ip_address            = google_compute_global_address.app[0].id
+}
+
+# HTTP(80) → HTTPS 轉址
+resource "google_compute_url_map" "https_redirect" {
+  count = var.enable_compute ? 1 : 0
+  name  = "myfirstweb-http-redirect"
+  default_url_redirect {
+    https_redirect = true
+    strip_query    = false
+  }
+}
+
+resource "google_compute_target_http_proxy" "app" {
+  count   = var.enable_compute ? 1 : 0
+  name    = "myfirstweb-http-proxy"
+  url_map = google_compute_url_map.https_redirect[0].id
+}
+
+resource "google_compute_global_forwarding_rule" "http" {
+  count                 = var.enable_compute ? 1 : 0
+  name                  = "myfirstweb-fr-http"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  port_range            = "80"
+  target                = google_compute_target_http_proxy.app[0].id
+  ip_address            = google_compute_global_address.app[0].id
+}
+
+output "app_lb_ip" {
+  description = "固定對外 IP；在 Cloudflare 用 A 記錄把 app_domain 指到這裡（DNS-only 灰雲）"
+  value       = var.enable_compute ? google_compute_global_address.app[0].address : null
+}
+
 
 
 # ── AWS OIDC (Jenkins) ───────────────────────────
@@ -216,6 +308,13 @@ resource "google_project_iam_member" "jenkins_artifact_writer" {
 resource "google_project_iam_member" "jenkins_run_developer" {
   project = "ckc101-13"
   role    = "roles/run.developer"
+  member  = "serviceAccount:${google_service_account.jenkins_deploy.email}"
+}
+
+# 讓 pipeline(jenkins-deploy) 能建立 / 管理 HTTPS Load Balancer 資源
+resource "google_project_iam_member" "jenkins_compute_admin" {
+  project = "ckc101-13"
+  role    = "roles/compute.admin"
   member  = "serviceAccount:${google_service_account.jenkins_deploy.email}"
 }
 

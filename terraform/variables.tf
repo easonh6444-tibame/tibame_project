@@ -9,3 +9,9 @@ variable "enable_compute" {
   type        = bool
   default     = false
 }
+
+variable "app_domain" {
+  description = "Custom domain fronted by the GCP HTTPS load balancer"
+  type        = string
+  default     = "buy0050.xyz"
+}
