@@ -95,17 +95,25 @@ export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | python3 -c "import sys,json; print(
 export AWS_SESSION_TOKEN=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['SessionToken'])")
 
 # ── 2. GCP: exchange JWT via Workload Identity Federation ──
-GCP_RESP=$(curl -s -X POST "https://sts.googleapis.com/v1/token" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"grantType\": \"urn:ietf:params:oauth:grant-type:token-exchange\",
-    \"audience\": \"//iam.googleapis.com/${GCP_WIF_PROVIDER}\",
-    \"subjectTokenType\": \"urn:ietf:params:oauth:token-type:id_token\",
-    \"requestedTokenType\": \"urn:ietf:params:oauth:token-type:access_token\",
-    \"subjectToken\": \"${JWT_GCP}\",
-    \"scope\": \"https://www.googleapis.com/auth/cloud-platform\"
-  }")
-echo "GCP STS response: ${GCP_RESP}"
+GCP_RESP=$(python3 -c "
+import json, urllib.request, sys
+payload = {
+    'grantType': 'urn:ietf:params:oauth:grant-type:token-exchange',
+    'audience': '//iam.googleapis.com/${GCP_WIF_PROVIDER}',
+    'subjectTokenType': 'urn:ietf:params:oauth:token-type:id_token',
+    'requestedTokenType': 'urn:ietf:params:oauth:token-type:access_token',
+    'subjectToken': '${JWT_GCP}',
+    'scope': 'https://www.googleapis.com/auth/cloud-platform'
+}
+req = urllib.request.Request('https://sts.googleapis.com/v1/token',
+    data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})
+try:
+    resp = urllib.request.urlopen(req)
+    print(resp.read().decode())
+except urllib.error.HTTPError as e:
+    print(e.read().decode(), file=sys.stderr)
+    sys.exit(1)
+")
 GCP_TOKEN=$(echo "${GCP_RESP}" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 SA_RESP=$(curl -sf -X POST \
