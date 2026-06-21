@@ -94,17 +94,6 @@ export AWS_ACCESS_KEY_ID=$(echo $CREDS | python3 -c "import sys,json; print(json
 export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['SecretAccessKey'])")
 export AWS_SESSION_TOKEN=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['SessionToken'])")
 
-aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REGISTRY}
-docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:${TAG}
-docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:latest
-docker push ${ECR_IMAGE}:${TAG}
-docker push ${ECR_IMAGE}:latest
-
-aws ecs update-service --cluster default --service myfirstweb-service \
-  --force-new-deployment --region ${AWS_REGION} > /dev/null
-
-unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-
 # ── 2. GCP: exchange JWT via Workload Identity Federation ──
 GCP_TOKEN=$(curl -sf -X POST "https://sts.googleapis.com/v1/token" \
   -H "Content-Type: application/json" \
@@ -117,7 +106,6 @@ GCP_TOKEN=$(curl -sf -X POST "https://sts.googleapis.com/v1/token" \
     \"scope\": \"https://www.googleapis.com/auth/cloud-platform\"
   }" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-# Impersonate SA to get a scoped token
 SA_TOKEN=$(curl -sf -X POST \
   "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${GCP_SA_EMAIL}:generateAccessToken" \
   -H "Authorization: Bearer ${GCP_TOKEN}" \
@@ -125,17 +113,31 @@ SA_TOKEN=$(curl -sf -X POST \
   -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"]}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 
+# ── 3. Terraform: provision infra ──
+export GOOGLE_OAUTH_ACCESS_TOKEN="${SA_TOKEN}"
+cd terraform
+terraform init -input=false
+terraform apply -input=false -auto-approve \
+  -var="enable_compute=true" \
+  -var="app_image_tag=${TAG}"
+cd ..
+unset GOOGLE_OAUTH_ACCESS_TOKEN
+
+# ── 4. Push images to ECR ──
+aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REGISTRY}
+docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:${TAG}
+docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:latest
+docker push ${ECR_IMAGE}:${TAG}
+docker push ${ECR_IMAGE}:latest
+
+# ── 5. Push images to GCP Artifact Registry ──
 docker login -u oauth2accesstoken -p "${SA_TOKEN}" ${GCP_REGION}-docker.pkg.dev
 docker tag ${IMAGE}:${TAG} ${GAR_IMAGE}:${TAG}
 docker tag ${IMAGE}:${TAG} ${GAR_IMAGE}:latest
 docker push ${GAR_IMAGE}:${TAG}
 docker push ${GAR_IMAGE}:latest
 
-gcloud run services update myfirstweb \
-  --image ${GAR_IMAGE}:${TAG} \
-  --region ${GCP_REGION} \
-  --project ${GCP_PROJECT} \
-  --access-token-file <(echo ${SA_TOKEN})
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 '''
                 }
             }
