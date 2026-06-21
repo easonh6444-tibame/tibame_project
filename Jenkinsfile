@@ -23,9 +23,13 @@ pipeline {
         stage('Test') {
             steps {
                 sh """
-                    docker run -d --name test-${TAG} ${IMAGE}:${TAG}
-                    sleep 5
+                    docker run -d --name test-${TAG} --network jenkins_default ${IMAGE}:${TAG}
                     CONTAINER_IP=\$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-${TAG})
+                    for i in \$(seq 1 15); do
+                        curl -sf http://\${CONTAINER_IP}:19191/api/status && break
+                        echo "Waiting for app... \${i}/15"
+                        sleep 2
+                    done
                     curl -f http://\${CONTAINER_IP}:19191/api/status
                     docker rm -f test-${TAG}
                 """
