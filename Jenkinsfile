@@ -130,7 +130,14 @@ cd terraform
 terraform init -input=false
 terraform apply -input=false -auto-approve \
   -var="enable_compute=true" \
-  -var="app_image_tag=${TAG}"
+  -var="app_image_tag=${TAG}" \
+  -target=aws_ecr_repository.app \
+  -target=aws_ecs_cluster.app \
+  -target=aws_ecs_task_definition.app \
+  -target=aws_ecs_service.app \
+  -target=google_artifact_registry_repository.app \
+  -target=google_cloud_run_v2_service.app \
+  -target=google_cloud_run_v2_service_iam_member.public
 cd ..
 unset GOOGLE_OAUTH_ACCESS_TOKEN
 
