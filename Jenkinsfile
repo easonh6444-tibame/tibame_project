@@ -95,7 +95,7 @@ export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | python3 -c "import sys,json; print(
 export AWS_SESSION_TOKEN=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['SessionToken'])")
 
 # ── 2. GCP: exchange JWT via Workload Identity Federation ──
-GCP_TOKEN=$(curl -sf -X POST "https://sts.googleapis.com/v1/token" \
+GCP_RESP=$(curl -sf -X POST "https://sts.googleapis.com/v1/token" \
   -H "Content-Type: application/json" \
   -d "{
     \"grantType\": \"urn:ietf:params:oauth:grant-type:token-exchange\",
@@ -104,14 +104,17 @@ GCP_TOKEN=$(curl -sf -X POST "https://sts.googleapis.com/v1/token" \
     \"requestedTokenType\": \"urn:ietf:params:oauth:token-type:access_token\",
     \"subjectToken\": \"${JWT_GCP}\",
     \"scope\": \"https://www.googleapis.com/auth/cloud-platform\"
-  }" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+  }")
+echo "GCP STS response: ${GCP_RESP}"
+GCP_TOKEN=$(echo "${GCP_RESP}" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
-SA_TOKEN=$(curl -sf -X POST \
+SA_RESP=$(curl -sf -X POST \
   "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${GCP_SA_EMAIL}:generateAccessToken" \
   -H "Authorization: Bearer ${GCP_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"]}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
+  -d '{"scope":["https://www.googleapis.com/auth/cloud-platform"]}')
+echo "SA token response: ${SA_RESP}"
+SA_TOKEN=$(echo "${SA_RESP}" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 
 # ── 3. Terraform: provision infra ──
 export GOOGLE_OAUTH_ACCESS_TOKEN="${SA_TOKEN}"
