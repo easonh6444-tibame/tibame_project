@@ -1,259 +1,238 @@
-from flask import Flask, jsonify, render_template, request, abort
+from flask import Flask, jsonify, render_template_string
+import requests
 import time
-import random
-import os
-import socket
-
-# ── AWS S3 configuration (read from environment variables — never hardcode) ──
-# Set these in your shell / .env / Docker environment:
-#   AWS_ACCESS_KEY_ID     = your access key
-#   AWS_SECRET_ACCESS_KEY = your secret key
-#   AWS_REGION            = ap-northeast-1  (default below)
-#   S3_BUCKET_NAME        = ckc101-13       (default below)
-S3_BUCKET  = os.environ.get('S3_BUCKET_NAME', 'ckc101-13')
-S3_REGION  = os.environ.get('AWS_REGION',     'ap-northeast-1')
-
-def _s3_client():
-    """Lazily create boto3 S3 client; raises RuntimeError if boto3 is absent."""
-    try:
-        import boto3
-        return boto3.client(
-            's3',
-            region_name=S3_REGION,
-            # boto3 auto-reads AWS_ACCESS_KEY_ID & AWS_SECRET_ACCESS_KEY from env
-        )
-    except ImportError:
-        raise RuntimeError('boto3 is not installed. Run: pip install boto3')
 
 app = Flask(__name__)
 
-# In-memory storage for demonstrating Flask API functionality
-tasks = [
-    {
-        "id": 1,
-        "title": "Initialize premium Flask application scaffolding",
-        "description": "Establish clean src/ and test/ folder structures.",
-        "completed": True,
-        "created_at": time.time() - 3600
-    },
-    {
-        "id": 2,
-        "title": "Design sleek modern Glassmorphism frontend",
-        "description": "Utilize dark themes, glowing neon gradients, and responsive layouts.",
-        "completed": False,
-        "created_at": time.time() - 1800
-    },
-    {
-        "id": 3,
-        "title": "Add automated pytest test suite for all endpoints",
-        "description": "Ensure code reliability using structured unit and integration tests.",
-        "completed": False,
-        "created_at": time.time() - 900
-    },
-    {
-        "id": 4,
-        "title": "Deploy application to production on port 19191",
-        "description": "Verify environment variables and establish a reverse proxy or direct deployment.",
-        "completed": False,
-        "created_at": time.time()
-    }
-]
-
-task_id_counter = 5
+# Process start time — used by the /api/status health endpoint
 start_time = time.time()
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>0050 專業儀表板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f0f2f5; color: #1a1a1a; margin: 0; padding: 20px; }
+        .container { max-width: 1100px; margin: 0 auto; }
+
+        /* 頂部價格區 */
+        .header-box { background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .main-info { display: flex; align-items: center; gap: 20px; margin-bottom: 15px; }
+        #price { font-size: 3.2rem; font-weight: 800; line-height: 1; }
+        .price-details { display: flex; flex-direction: column; }
+        #change { font-size: 1.4rem; font-weight: 600; }
+        #update-time { color: #888; font-size: 0.9rem; }
+
+        /* 數據欄位區 */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; border-top: 1px solid #eee; pt: 15px; padding-top: 15px; }
+        .stat-item { display: flex; flex-direction: column; }
+        .stat-label { font-size: 0.85rem; color: #666; margin-bottom: 4px; }
+        .stat-value { font-size: 1.1rem; font-weight: 600; }
+
+        .up { color: #d63031; }
+        .down { color: #27ae60; }
+
+        /* 圖表區 */
+        .grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        h2 { font-size: 1.1rem; color: #444; margin: 0 0 20px 0; border-left: 4px solid #3498db; padding-left: 10px; }
+
+        @media (max-width: 850px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-box">
+            <div style="margin-bottom: 10px; font-weight: bold; color: #555;">元大台灣50 (0050.TW)</div>
+            <div class="main-info">
+                <span id="price">--</span>
+                <div class="price-details">
+                    <span id="change">--</span>
+                    <span id="update-time">初始化中...</span>
+                </div>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-item"><span class="stat-label">昨收</span><span id="yest-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">開盤</span><span id="open-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">最高</span><span id="high-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">最低</span><span id="low-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">成交量</span><span id="volume" class="stat-value">--</span></div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>分時走勢</h2>
+                <canvas id="priceChart" height="180"></canvas>
+            </div>
+            <div class="card">
+                <h2>成分股佔比總覽</h2>
+                <canvas id="pieChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        Chart.register(ChartDataLabels);
+        let priceChart, pieChart;
+        const priceData = [];
+        const priceLabels = [];
+
+        async function updateData() {
+            try {
+                const res = await fetch('/api/data?' + Date.now());
+                const data = await res.json();
+                if(data.error) return;
+
+                // 更新大數字
+                const p = data.current_price;
+                const y = data.yesterday_price;
+                const diff = (p - y).toFixed(2);
+                const pct = ((diff / y) * 100).toFixed(2);
+
+                document.getElementById('price').innerText = p.toFixed(2);
+                const changeEl = document.getElementById('change');
+                changeEl.innerText = `${diff > 0 ? '▲' : '▼'} ${Math.abs(diff)} (${pct}%)`;
+                changeEl.className = diff >= 0 ? 'up' : 'down';
+                document.getElementById('price').className = diff >= 0 ? 'up' : 'down';
+
+                // 更新數值面板
+                document.getElementById('yest-price').innerText = y.toFixed(2);
+                document.getElementById('open-price').innerText = data.open.toFixed(2);
+                document.getElementById('high-price').innerText = data.high.toFixed(2);
+                document.getElementById('low-price').innerText = data.low.toFixed(2);
+                document.getElementById('volume').innerText = data.volume.toLocaleString() + ' 張';
+                document.getElementById('update-time').innerText = data.time + ' 更新';
+
+                // 更新圖表
+                const now = data.time.split(' ')[0]; // 只取時間部分
+                if (priceLabels[priceLabels.length - 1] !== now) {
+                    priceLabels.push(now);
+                    priceData.push(p);
+                    if (priceLabels.length > 100) { priceLabels.shift(); priceData.shift(); }
+                    priceChart.update('none'); // 無動畫更新
+                }
+            } catch (e) { console.error("Fetch error", e); }
+        }
+
+        function initCharts(holdings) {
+            priceChart = new Chart(document.getElementById('priceChart'), {
+                type: 'line',
+                data: { labels: priceLabels, datasets: [{ data: priceData, borderColor: '#3498db', borderWidth: 2, tension: 0.1, fill: true, backgroundColor: 'rgba(52, 152, 219, 0.05)', pointRadius: 0 }] },
+                options: {
+                    animation: false, // 關閉動畫提升 1s 更新頻率下的效能
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: { legend: { display: false }, datalabels: { display: false } },
+                    scales: {
+                        x: { ticks: { autoSkip: true, maxTicksLimit: 10 } },
+                        y: { ticks: { callback: v => v.toFixed(1) } }
+                    }
+                }
+            });
+
+            pieChart = new Chart(document.getElementById('pieChart'), {
+                type: 'pie',
+                data: {
+                    labels: holdings.map(h => h.name),
+                    datasets: [{
+                        data: holdings.map(h => h.weight),
+                        backgroundColor: ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#34495e', '#7f8c8d', '#bdc3c7']
+                    }]
+                },
+                options: {
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 20, boxWidth: 12 } },
+                        datalabels: {
+                            color: '#fff',
+                            font: { weight: 'bold', size: 12 },
+                            formatter: (v, ctx) => v > 5 ? ctx.chart.data.labels[ctx.dataIndex] : ''
+                        }
+                    }
+                }
+            });
+        }
+
+        async function start() {
+            const hRes = await fetch('/api/holdings');
+            const holdings = await hRes.json();
+            initCharts(holdings);
+            updateData();
+            setInterval(updateData, 10000);
+            }
+
+        start();
+    </script>
+</body>
+</html>
+"""
+
 
 @app.route('/')
 def index():
-    """Renders the primary web interface."""
-    return render_template('index.html')
+    return render_template_string(HTML_TEMPLATE)
+
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    """
-    Returns mock dynamic server metrics.
-    Demonstrates background integration and JSON responses.
-    """
-    uptime_seconds = int(time.time() - start_time)
-    
-    # Generate realistic dynamic fluctuations
-    cpu_usage = round(20.0 + random.uniform(-5.0, 15.0), 1)
-    memory_usage = round(45.2 + random.uniform(-2.0, 2.0), 1)
-    network_traffic = round(124.5 + random.uniform(-20.0, 40.0), 1)
-    
+    """Health endpoint — required by the CI test stage and the Docker HEALTHCHECK."""
     return jsonify({
         "status": "online",
-        "uptime": uptime_seconds,
-        "metrics": {
-            "cpu_usage_pct": max(0.0, min(100.0, cpu_usage)),
-            "memory_usage_pct": max(0.0, min(100.0, memory_usage)),
-            "network_throughput_mbps": max(0.0, network_traffic),
-            "database_connection": "healthy",
-            "active_sessions": random.randint(3, 12)
-        }
+        "uptime": int(time.time() - start_time)
     })
 
-@app.route('/api/tasks', methods=['GET'])
-def get_tasks():
-    """Retrieves all tasks, sorted by creation time descending."""
-    return jsonify(sorted(tasks, key=lambda x: x['created_at'], reverse=True))
 
-@app.route('/api/tasks', methods=['POST'])
-def create_task():
-    """Creates a new task. Requires JSON payload."""
-    global task_id_counter
-    if not request.json or 'title' not in request.json:
-        abort(400, description="Missing required parameter 'title'.")
-        
-    title = request.json.get('title', '').strip()
-    description = request.json.get('description', '').strip()
-    
-    if not title:
-        abort(400, description="Title parameter cannot be empty.")
-        
-    new_task = {
-        "id": task_id_counter,
-        "title": title,
-        "description": description,
-        "completed": False,
-        "created_at": time.time()
-    }
-    tasks.append(new_task)
-    task_id_counter += 1
-    
-    return jsonify(new_task), 201
-
-@app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
-def delete_task(task_id):
-    """Deletes a task by its unique ID."""
-    global tasks
-    task_to_delete = next((task for task in tasks if task['id'] == task_id), None)
-    if not task_to_delete:
-        abort(404, description=f"Task with ID {task_id} not found.")
-        
-    tasks = [task for task in tasks if task['id'] != task_id]
-    return jsonify({"success": True, "message": f"Task {task_id} successfully deleted."}), 200
-
-@app.route('/api/tasks/<int:task_id>', methods=['PATCH'])
-def toggle_task_completion(task_id):
-    """Toggles task completed status."""
-    task_to_update = next((task for task in tasks if task['id'] == task_id), None)
-    if not task_to_update:
-        abort(404, description=f"Task with ID {task_id} not found.")
-        
-    if not request.json or 'completed' not in request.json:
-        abort(400, description="Missing completion status in body.")
-        
-    task_to_update['completed'] = bool(request.json['completed'])
-    return jsonify(task_to_update), 200
-
-@app.route('/api/server-ip')
-def server_ip():
-    """Returns the server's IP address."""
+@app.route('/api/data')
+def get_data():
     try:
-        ip = socket.gethostbyname(socket.gethostname())
-    except Exception:
-        ip = '127.0.0.1'
-    return jsonify({'ip': ip})
+        url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_0050.tw&json=1&_={int(time.time()*1000)}"
+        res = requests.get(url, headers=HEADERS, timeout=5).json()
+        if not res.get('msgArray'): return jsonify(error="Empty"), 404
 
-@app.route('/feature1')
-def feature1():
-    """Feature 1: 早上提醒看股票。"""
-    return '早上要看股票'
+        info = res['msgArray'][0]
 
-@app.route('/feature2')
-def feature2():
-    """Feature 2: 提醒要找下午上班的公司。"""
-    return '要找下午上班的公司'
+        # 關鍵修復：處理 "-" 字串
+        def safe_float(val, default=0.0):
+            if val == "-" or val is None: return default
+            try: return float(val)
+            except: return default
 
-# ── Feature 3: S3 File Upload / Download ─────────────────────────────────────
+        yest = safe_float(info.get('y'))
+        # 優先順序：成交價 z > 最佳買價 b > 昨收 y
+        curr = safe_float(info.get('z'))
+        if curr == 0:
+            # 如果沒有成交價，試著抓買價的第一個
+            b_list = info.get('b', '').split('_')
+            curr = safe_float(b_list[0]) if b_list else yest
+            if curr == 0: curr = yest
 
-@app.route('/feature3')
-def feature3():
-    """Feature 3: AWS S3 檔案上傳 / 下載管理介面。"""
-    return render_template('feature3.html')
-
-
-@app.route('/api/s3/list', methods=['GET'])
-def s3_list():
-    """列出 S3 Bucket 內的所有物件（最多 1000 筆）。"""
-    try:
-        s3 = _s3_client()
-        resp = s3.list_objects_v2(Bucket=S3_BUCKET)
-        files = [
-            {
-                'key':           obj['Key'],
-                'size':          obj['Size'],
-                'last_modified': obj['LastModified'].isoformat(),
-            }
-            for obj in resp.get('Contents', [])
-        ]
-        return jsonify({'bucket': S3_BUCKET, 'files': files})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/s3/upload', methods=['POST'])
-def s3_upload():
-    """上傳檔案到 S3 Bucket。"""
-    if 'file' not in request.files:
-        abort(400, description="No file part in the request.")
-    file = request.files['file']
-    if file.filename == '':
-        abort(400, description="No file selected.")
-    try:
-        s3 = _s3_client()
-        s3.upload_fileobj(
-            file,
-            S3_BUCKET,
-            file.filename,
-            ExtraArgs={'ContentType': file.content_type or 'application/octet-stream'},
+        return jsonify(
+            current_price=curr,
+            yesterday_price=yest,
+            open=safe_float(info.get('o'), yest),
+            high=safe_float(info.get('h'), curr),
+            low=safe_float(info.get('l'), curr),
+            volume=int(safe_float(info.get('v'), 0)),
+            time=info.get('t', '--:--:--')
         )
-        return jsonify({'success': True, 'key': file.filename, 'bucket': S3_BUCKET}), 201
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify(error=str(e)), 500
 
 
-@app.route('/api/s3/download-url', methods=['GET'])
-def s3_download_url():
-    """產生 S3 物件的 Presigned URL（15 分鐘有效）。"""
-    key = request.args.get('key', '').strip()
-    if not key:
-        abort(400, description="Missing 'key' query parameter.")
-    try:
-        s3 = _s3_client()
-        url = s3.generate_presigned_url(
-            'get_object',
-            Params={'Bucket': S3_BUCKET, 'Key': key},
-            ExpiresIn=900,   # 15 minutes
-        )
-        return jsonify({'url': url, 'key': key, 'expires_in': 900})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.route('/api/s3/delete', methods=['DELETE'])
-def s3_delete():
-    """刪除 S3 Bucket 內的物件。"""
-    data = request.get_json(silent=True) or {}
-    key = data.get('key', '').strip()
-    if not key:
-        abort(400, description="Missing 'key' in request body.")
-    try:
-        s3 = _s3_client()
-        s3.delete_object(Bucket=S3_BUCKET, Key=key)
-        return jsonify({'success': True, 'key': key})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Error Handler for API routes
-@app.errorhandler(400)
-def bad_request(error):
-    return jsonify({"error": "Bad Request", "message": error.description}), 400
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({"error": "Not Found", "message": error.description}), 404
-
-@app.errorhandler(500)
-def server_error(error):
-    return jsonify({"error": "Internal Server Error", "message": "An unexpected error occurred."}), 500
+@app.route('/api/holdings')
+def get_holdings():
+    return jsonify([
+        {"name": "台積電", "weight": 52.4}, {"name": "鴻海", "weight": 6.1},
+        {"name": "聯發科", "weight": 4.5}, {"name": "富邦金", "weight": 2.8},
+        {"name": "台達電", "weight": 2.3}, {"name": "國泰金", "weight": 2.1},
+        {"name": "中信金", "weight": 1.9}, {"name": "廣達", "weight": 1.8},
+        {"name": "聯電", "weight": 1.6}, {"name": "兆豐金", "weight": 1.4}
+    ])
