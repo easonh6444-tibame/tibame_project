@@ -95,7 +95,7 @@ export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | python3 -c "import sys,json; print(
 export AWS_SESSION_TOKEN=$(echo $CREDS | python3 -c "import sys,json; print(json.load(sys.stdin)['SessionToken'])")
 
 # ── 2. GCP: exchange JWT via Workload Identity Federation ──
-GCP_RESP=$(curl -sf -X POST "https://sts.googleapis.com/v1/token" \
+GCP_RESP=$(curl -s -X POST "https://sts.googleapis.com/v1/token" \
   -H "Content-Type: application/json" \
   -d "{
     \"grantType\": \"urn:ietf:params:oauth:grant-type:token-exchange\",
