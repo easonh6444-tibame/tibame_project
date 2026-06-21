@@ -158,11 +158,15 @@ resource "google_compute_url_map" "app" {
 }
 
 # Google 託管 SSL 憑證（需 ${var.app_domain} 的 DNS 指到下方 IP 後才會 ACTIVE）
+# 名稱帶版本號 + create_before_destroy：要重新觸發驗證時改版本號即可無中斷換證
 resource "google_compute_managed_ssl_certificate" "app" {
   count = var.enable_compute ? 1 : 0
-  name  = "myfirstweb-cert"
+  name  = "myfirstweb-cert-1"
   managed {
     domains = [var.app_domain]
+  }
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
