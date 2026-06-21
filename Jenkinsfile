@@ -124,7 +124,9 @@ SA_RESP=$(curl -sf -X POST \
 echo "SA token response: ${SA_RESP}"
 SA_TOKEN=$(echo "${SA_RESP}" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 
-# ── 3. Terraform: provision infra ──
+# ── 3. Terraform: create registries first (ECR + Artifact Registry) ──
+# Cloud Run 部署時會驗證 image 是否存在，所以必須先有 registry 且 image 已 push，
+# 再 apply 運算資源，否則會 "Image not found"。
 export GOOGLE_OAUTH_ACCESS_TOKEN="${SA_TOKEN}"
 cd terraform
 terraform init -input=false
@@ -132,14 +134,8 @@ terraform apply -input=false -auto-approve \
   -var="enable_compute=true" \
   -var="app_image_tag=${TAG}" \
   -target=aws_ecr_repository.app \
-  -target=aws_ecs_cluster.app \
-  -target=aws_ecs_task_definition.app \
-  -target=aws_ecs_service.app \
-  -target=google_artifact_registry_repository.app \
-  -target=google_cloud_run_v2_service.app \
-  -target=google_cloud_run_v2_service_iam_member.public
+  -target=google_artifact_registry_repository.app
 cd ..
-unset GOOGLE_OAUTH_ACCESS_TOKEN
 
 # ── 4. Push images to ECR ──
 aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REGISTRY}
@@ -155,6 +151,18 @@ docker tag ${IMAGE}:${TAG} ${GAR_IMAGE}:latest
 docker push ${GAR_IMAGE}:${TAG}
 docker push ${GAR_IMAGE}:latest
 
+# ── 6. Terraform: deploy compute (images now exist in both registries) ──
+cd terraform
+terraform apply -input=false -auto-approve \
+  -var="enable_compute=true" \
+  -var="app_image_tag=${TAG}" \
+  -target=aws_ecs_cluster.app \
+  -target=aws_ecs_task_definition.app \
+  -target=aws_ecs_service.app \
+  -target=google_cloud_run_v2_service.app \
+  -target=google_cloud_run_v2_service_iam_member.public
+cd ..
+unset GOOGLE_OAUTH_ACCESS_TOKEN
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 '''
                 }

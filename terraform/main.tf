@@ -225,6 +225,14 @@ resource "google_service_account_iam_member" "jenkins_wif_binding" {
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.jenkins.name}/*"
 }
 
+# 讓 jenkins-deploy 能 actAs 自己：部署 Cloud Run 指定 runtime SA 時需要
+# iam.serviceAccounts.actAs，順帶提供 terraform refresh 需要的 iam.serviceAccounts.get
+resource "google_service_account_iam_member" "jenkins_act_as_self" {
+  service_account_id = google_service_account.jenkins_deploy.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.jenkins_deploy.email}"
+}
+
 output "aws_jenkins_role_arn" {
   value = aws_iam_role.jenkins_deploy.arn
 }
