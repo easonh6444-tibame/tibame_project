@@ -23,9 +23,10 @@ pipeline {
         stage('Test') {
             steps {
                 sh """
-                    docker run -d --name test-${TAG} -p 19191:19191 ${IMAGE}:${TAG}
+                    docker run -d --name test-${TAG} ${IMAGE}:${TAG}
                     sleep 5
-                    curl -f http://localhost:19191/api/status
+                    CONTAINER_IP=\$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-${TAG})
+                    curl -f http://\${CONTAINER_IP}:19191/api/status
                     docker rm -f test-${TAG}
                 """
             }
