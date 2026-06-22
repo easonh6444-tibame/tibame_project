@@ -192,36 +192,40 @@ def get_status():
 
 @app.route('/api/data')
 def get_data():
+    # 改用 Yahoo Finance：TWSE 的 mis API 會擋雲端機房 IP（Cloud Run 連不到），
+    # Yahoo 的 chart API 從雲端可正常存取。輸出 JSON 維持原本格式，前端不需改。
     try:
-        url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_0050.tw&json=1&_={int(time.time()*1000)}"
-        res = requests.get(url, headers=HEADERS, timeout=5).json()
-        if not res.get('msgArray'): return jsonify(error="Empty"), 404
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/0050.TW?interval=1d&range=1d"
+        res = requests.get(url, headers=HEADERS, timeout=8).json()
+        result = res['chart']['result'][0]
+        meta = result['meta']
+        quote = (result.get('indicators', {}).get('quote') or [{}])[0]
 
-        info = res['msgArray'][0]
+        def first_valid(arr, default):
+            for x in (arr or []):
+                if x is not None:
+                    return x
+            return default
 
-        # 關鍵修復：處理 "-" 字串
-        def safe_float(val, default=0.0):
-            if val == "-" or val is None: return default
-            try: return float(val)
-            except: return default
+        yest = meta.get('chartPreviousClose') or meta.get('previousClose') or 0.0
+        curr = meta.get('regularMarketPrice') or yest
+        open_p = first_valid(quote.get('open'), yest)
+        high = meta.get('regularMarketDayHigh') or first_valid(quote.get('high'), curr)
+        low = meta.get('regularMarketDayLow') or first_valid(quote.get('low'), curr)
+        # Yahoo 成交量是「股」，轉成「張」(1 張 = 1000 股)
+        volume = int((meta.get('regularMarketVolume') or 0) / 1000)
 
-        yest = safe_float(info.get('y'))
-        # 優先順序：成交價 z > 最佳買價 b > 昨收 y
-        curr = safe_float(info.get('z'))
-        if curr == 0:
-            # 如果沒有成交價，試著抓買價的第一個
-            b_list = info.get('b', '').split('_')
-            curr = safe_float(b_list[0]) if b_list else yest
-            if curr == 0: curr = yest
+        ts = meta.get('regularMarketTime')
+        tstr = time.strftime('%H:%M:%S', time.gmtime(ts + 8 * 3600)) if ts else '--:--:--'
 
         return jsonify(
-            current_price=curr,
-            yesterday_price=yest,
-            open=safe_float(info.get('o'), yest),
-            high=safe_float(info.get('h'), curr),
-            low=safe_float(info.get('l'), curr),
-            volume=int(safe_float(info.get('v'), 0)),
-            time=info.get('t', '--:--:--')
+            current_price=float(curr),
+            yesterday_price=float(yest),
+            open=float(open_p),
+            high=float(high),
+            low=float(low),
+            volume=volume,
+            time=tstr,
         )
     except Exception as e:
         return jsonify(error=str(e)), 500
