@@ -63,6 +63,13 @@ pipeline {
         // main branch → deploy to AWS (ECR+ECS) and GCP (Artifact Registry+Cloud Run) via Jenkins OIDC
         stage('Deploy to Cloud') {
             when { branch 'main' }
+            // 部署前需 devops 手動核准（只有 devops 或管理員能按）
+            input {
+                message 'Build 已完成，是否部署到雲端？'
+                ok 'Deploy'
+                submitter 'devops'
+                submitterParameter 'APPROVER'
+            }
             environment {
                 AWS_ROLE_ARN     = credentials('aws-jenkins-role-arn')
                 AWS_REGION       = "ap-northeast-1"
