@@ -34,8 +34,28 @@ def progHeader() {
     def sha = (env.GIT_COMMIT ?: '').take(7)
     return "**🔧 Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}**" + (sha ? " `${sha}`" : "")
 }
-def progStart(String body) { discordSend(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
-def prog(String body)      { discordEdit(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
+// MR(PR) 建置不印進度（env.CHANGE_ID 有值代表是 MR）；只在開啟時送一則通知
+def progStart(String body) { if (env.CHANGE_ID) return; discordSend(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
+def prog(String body)      { if (env.CHANGE_ID) return; discordEdit(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
+
+// 純送一則訊息（不追蹤 id、不編輯）
+def discordSimple(String content) {
+    withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
+        withEnv(["DISCORD_MSG=${content}"]) {
+            sh '''
+                python3 -c "import json,os; open('dc.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
+                curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true
+                rm -f dc.json
+            '''
+        }
+    }
+}
+def notifyPrOpened() {
+    def title = env.CHANGE_TITLE ? (" — " + env.CHANGE_TITLE) : ""
+    discordSimple("📬 **PR !${env.CHANGE_ID} 已開啟**（測試通過 ✅，可供審核）" + title +
+        "\n作者: " + (env.CHANGE_AUTHOR ?: '?') + " ｜ 目標分支: " + (env.CHANGE_TARGET ?: 'main') +
+        "\n" + (env.CHANGE_URL ?: env.BUILD_URL))
+}
 
 pipeline {
     agent any
@@ -50,7 +70,8 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                script { progStart("✅ Checkout\n⏳ Build…") }
+                // MR 不在此通知（等測試通過後才在 post 通知）；main/dev 才開始即時進度
+                script { if (!env.CHANGE_ID) progStart("✅ Checkout\n⏳ Build…") }
             }
         }
 
@@ -254,8 +275,14 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
     post {
         success {
-            echo "✅ Build ${TAG} (${env.BRANCH_NAME}) deployed successfully"
-            script { prog("✅ Checkout　✅ Build　✅ Test　✅ Push　✅ Deploy\n🎉 **部署成功**") }
+            echo "✅ Build ${TAG} (${env.BRANCH_NAME}) succeeded"
+            script {
+                if (env.CHANGE_ID) {
+                    notifyPrOpened()   // MR：測試通過後才通知「PR 已開啟」
+                } else {
+                    prog("✅ Checkout　✅ Build　✅ Test　✅ Push　✅ Deploy\n🎉 **部署成功**")
+                }
+            }
         }
         failure {
             echo "❌ Build ${TAG} (${env.BRANCH_NAME}) failed"
