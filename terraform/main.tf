@@ -320,19 +320,29 @@ resource "aws_iam_role_policy" "jenkins_s3_backend" {
   })
 }
 
-# 明確拒絕 IAM 列舉/讀取，蓋過 AmazonECS_FullAccess 順帶給的 iam:List*/Get*。
-# 不含 iam:PassRole（ECS 部署需要 pass execution role 給 ecs-tasks），故部署不受影響。
+# IAM 最小權限控制：
+#  - Allow：只讓 terraform 讀「ecsTaskExecutionRole 這一個 role」(refresh ECS task def 的依賴需要 iam:GetRole 等)
+#  - Deny ：擋掉帳號級列舉(iam:ListRoles 等)，關閉 AmazonECS_FullAccess 順帶給的 recon 能力
+# 注意：不能用 `Deny iam:Get*/List* on *`——那會連 terraform 要的 iam:GetRole@ecsTaskExecutionRole 一起擋掉，部署會失敗。
 resource "aws_iam_role_policy" "jenkins_deny_iam" {
   name = "deny-iam-enumeration"
   role = aws_iam_role.jenkins_deploy.name
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid      = "DenyIamEnumeration"
-      Effect   = "Deny"
-      Action   = ["iam:List*", "iam:Get*"]
-      Resource = "*"
-    }]
+    Statement = [
+      {
+        Sid      = "AllowReadEcsExecutionRoleOnly"
+        Effect   = "Allow"
+        Action   = ["iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole"]
+        Resource = "arn:aws:iam::112064333943:role/ecsTaskExecutionRole"
+      },
+      {
+        Sid      = "DenyIamAccountEnumeration"
+        Effect   = "Deny"
+        Action   = ["iam:ListRoles", "iam:ListUsers", "iam:ListGroups", "iam:ListPolicies", "iam:ListOpenIDConnectProviders", "iam:ListSAMLProviders", "iam:GetAccountAuthorizationDetails", "iam:GetAccountSummary"]
+        Resource = "*"
+      }
+    ]
   })
 }
 
