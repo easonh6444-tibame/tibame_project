@@ -320,6 +320,22 @@ resource "aws_iam_role_policy" "jenkins_s3_backend" {
   })
 }
 
+# 明確拒絕 IAM 列舉/讀取，蓋過 AmazonECS_FullAccess 順帶給的 iam:List*/Get*。
+# 不含 iam:PassRole（ECS 部署需要 pass execution role 給 ecs-tasks），故部署不受影響。
+resource "aws_iam_role_policy" "jenkins_deny_iam" {
+  name = "deny-iam-enumeration"
+  role = aws_iam_role.jenkins_deploy.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "DenyIamEnumeration"
+      Effect   = "Deny"
+      Action   = ["iam:List*", "iam:Get*"]
+      Resource = "*"
+    }]
+  })
+}
+
 # ── GCP Workload Identity (Jenkins) ──────────────
 
 resource "google_iam_workload_identity_pool" "jenkins" {
