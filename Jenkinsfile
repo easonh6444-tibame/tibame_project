@@ -52,7 +52,7 @@ def discordSimple(String content) {
 }
 def notifyPrOpened() {
     def title = env.CHANGE_TITLE ? (" — " + env.CHANGE_TITLE) : ""
-    discordSimple("📬 **PR !${env.CHANGE_ID} 已開啟**" + title +
+    discordSimple("📬 **PR !${env.CHANGE_ID} 已開啟**（測試通過 ✅，可供審核）" + title +
         "\n作者: " + (env.CHANGE_AUTHOR ?: '?') + " ｜ 目標分支: " + (env.CHANGE_TARGET ?: 'main') +
         "\n" + (env.CHANGE_URL ?: env.BUILD_URL))
 }
@@ -70,13 +70,8 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                script {
-                    if (env.CHANGE_ID) {
-                        notifyPrOpened()             // MR：只送「PR 已開啟」通知
-                    } else {
-                        progStart("✅ Checkout\n⏳ Build…")  // main/dev：即時進度
-                    }
-                }
+                // MR 不在此通知（等測試通過後才在 post 通知）；main/dev 才開始即時進度
+                script { if (!env.CHANGE_ID) progStart("✅ Checkout\n⏳ Build…") }
             }
         }
 
@@ -280,8 +275,14 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
     post {
         success {
-            echo "✅ Build ${TAG} (${env.BRANCH_NAME}) deployed successfully"
-            script { prog("✅ Checkout　✅ Build　✅ Test　✅ Push　✅ Deploy\n🎉 **部署成功**") }
+            echo "✅ Build ${TAG} (${env.BRANCH_NAME}) succeeded"
+            script {
+                if (env.CHANGE_ID) {
+                    notifyPrOpened()   // MR：測試通過後才通知「PR 已開啟」
+                } else {
+                    prog("✅ Checkout　✅ Build　✅ Test　✅ Push　✅ Deploy\n🎉 **部署成功**")
+                }
+            }
         }
         failure {
             echo "❌ Build ${TAG} (${env.BRANCH_NAME}) failed"
