@@ -63,7 +63,7 @@
 | # | 測試項目 | 測試方式（動作 / 資源） | 預測行為 | 實際行為 | 通過 |
 |---|---|---|---|---|---|
 | E1 | 該推 ECR（允許） | `ecr:DescribeRepositories` | allowed | **allowed** | ✓ |
-| E2 | 列 IAM（預期已拒） | `iam:ListRoles` | explicitDeny | **修復前** allowed（`AmazonECS_FullAccess` 給的；紅隊真打真的列出 role 名稱）→ **加 inline `deny-iam-enumeration`（Deny iam:List*/Get*，保留 PassRole）後** → simulator=explicitDeny、紅隊真打=`AccessDenied (explicit deny)`；`iam:PassRole`(→ecs-tasks)/`ecs:CreateService`/`ecr:*` 仍 allowed，部署不受影響 | ✓ |
+| E2 | 列 IAM（預期已拒） | `iam:ListRoles` | explicitDeny | ① 修復前 allowed（`AmazonECS_FullAccess` 給的；紅隊真打列出 role 名）→ ② 加 `Deny iam:List*/Get* on *` → recon 擋了，但**部署 #30 失敗**：terraform refresh `ecsTaskExecutionRole` 需要 `iam:GetRole`，被一起擋掉 → ③ 改成 **scoped Allow（只讀 ecsTaskExecutionRole）+ Deny（帳號級列舉 ListRoles 等）** → `iam:ListRoles`=explicitDeny、`iam:GetRole@ecsTaskExecutionRole`=allowed、**真部署 #31 SUCCESS**。教訓：**Deny 不能用 `iam:Get*/List* on *`，且 simulator 過 ≠ 真部署過，要跑真部署驗證** | ✓ |
 | E3 | 存取 state bucket（允許） | `s3:ListBucket` @ `ckc101-13-bucket-name-12345` | allowed | **allowed** | ✓ |
 | E4 | 存取其他 S3（禁止） | `s3:ListBucket` @ 任意其他 bucket | implicitDeny | **implicitDeny** | ✓ |
 | E5 | 建 IAM user（禁止） | `iam:CreateUser` | implicitDeny | **implicitDeny** | ✓ |
