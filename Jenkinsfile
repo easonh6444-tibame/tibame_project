@@ -82,6 +82,8 @@ pipeline {
         }
 
         stage('Push') {
+            // MR(change request) 只跑到 Build+Test 當作 PR 測試；只有 main/dev 才 push + 部署
+            when { anyOf { branch 'main'; branch 'dev' } }
             steps {
                 sh "docker push ${IMAGE}:${TAG}"
                 sh "docker push ${IMAGE}:latest"
