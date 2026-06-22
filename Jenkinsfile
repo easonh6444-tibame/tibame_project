@@ -1,3 +1,16 @@
+// Discord 通知：用 python 安全組 JSON（處理中文/跳脫），curl 發送（python urllib 會被 Discord 的 Cloudflare 擋）
+def notifyDiscord(String msg) {
+    withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
+        withEnv(["DISCORD_MSG=${msg}"]) {
+            sh '''
+                python3 -c "import json,os; open('discord_payload.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
+                curl -sf -H "Content-Type: application/json" --data @discord_payload.json "$DISCORD_WEBHOOK" || true
+                rm -f discord_payload.json
+            '''
+        }
+    }
+}
+
 pipeline {
     agent any
 
@@ -190,8 +203,17 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
     }
 
     post {
-        success { echo "✅ Build ${TAG} (${env.BRANCH_NAME}) deployed successfully" }
-        failure { echo "❌ Build ${TAG} (${env.BRANCH_NAME}) failed" }
+        success {
+            echo "✅ Build ${TAG} (${env.BRANCH_NAME}) deployed successfully"
+            notifyDiscord("✅ **部署成功** ｜ 分支 `${env.BRANCH_NAME}` ｜ commit `${TAG}` ｜ ${env.BUILD_URL}")
+        }
+        failure {
+            echo "❌ Build ${TAG} (${env.BRANCH_NAME}) failed"
+            notifyDiscord("❌ **Build 失敗** ｜ 分支 `${env.BRANCH_NAME}` ｜ commit `${TAG}` ｜ ${env.BUILD_URL}")
+        }
+        aborted {
+            notifyDiscord("⚠️ **Build 中止（未核准部署）** ｜ 分支 `${env.BRANCH_NAME}` ｜ commit `${TAG}` ｜ ${env.BUILD_URL}")
+        }
         always  { sh "docker rmi ${IMAGE}:${TAG} || true" }
     }
 }
