@@ -122,6 +122,7 @@ HTML_TEMPLATE = """
                 <canvas id="pieChart"></canvas>
             </div>
         </div>
+        <div style="text-align:center; color:#999; font-size:0.85rem; margin-top:20px;">資料來源：Yahoo Finance</div>
     </div>
 
     <script>
