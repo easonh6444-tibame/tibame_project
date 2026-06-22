@@ -1,15 +1,41 @@
-// Discord 通知：用 python 安全組 JSON（處理中文/跳脫），curl 發送（python urllib 會被 Discord 的 Cloudflare 擋）
-def notifyDiscord(String msg) {
+// Discord 即時進度通知：先建立一則訊息(?wait=true 取得 message id)，之後 PATCH 編輯同一則，
+// 讓單一訊息隨 pipeline 即時更新。用 curl 發送（python urllib 會被 Discord 的 Cloudflare 擋）。
+def discordSend(String content) {
     withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
-        withEnv(["DISCORD_MSG=${msg}"]) {
+        withEnv(["DISCORD_MSG=${content}"]) {
             sh '''
-                python3 -c "import json,os; open('discord_payload.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
-                curl -sf -H "Content-Type: application/json" --data @discord_payload.json "$DISCORD_WEBHOOK" || true
-                rm -f discord_payload.json
+                python3 -c "import json,os; open('dc.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
+                curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}?wait=true" -o dc_resp.json || true
+                python3 -c "import json; print(json.load(open('dc_resp.json')).get('id',''))" > .discord_mid 2>/dev/null || echo "" > .discord_mid
+                rm -f dc.json dc_resp.json
             '''
         }
     }
 }
+
+def discordEdit(String content) {
+    withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
+        withEnv(["DISCORD_MSG=${content}"]) {
+            sh '''
+                MID=$(cat .discord_mid 2>/dev/null || echo "")
+                python3 -c "import json,os; open('dc.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
+                if [ -n "$MID" ]; then
+                    curl -sf -X PATCH -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}/messages/${MID}" || true
+                else
+                    curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true
+                fi
+                rm -f dc.json
+            '''
+        }
+    }
+}
+
+def progHeader() {
+    def sha = (env.GIT_COMMIT ?: '').take(7)
+    return "**🔧 Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}**" + (sha ? " `${sha}`" : "")
+}
+def progStart(String body) { discordSend(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
+def prog(String body)      { discordEdit(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
 
 pipeline {
     agent any
@@ -22,13 +48,17 @@ pipeline {
 
     stages {
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+                script { progStart("✅ Checkout\n⏳ Build…") }
+            }
         }
 
         stage('Build') {
             steps {
                 sh "docker build -t ${IMAGE}:${TAG} -t ${IMAGE}:latest ./first_project"
             }
+            post { success { script { prog("✅ Checkout　✅ Build\n⏳ Test…") } } }
         }
 
         stage('Test') {
@@ -46,6 +76,7 @@ pipeline {
                 """
             }
             post {
+                success { script { prog("✅ Checkout　✅ Build　✅ Test\n⏳ Push…") } }
                 failure { sh "docker rm -f test-${TAG} || true" }
             }
         }
@@ -55,12 +86,24 @@ pipeline {
                 sh "docker push ${IMAGE}:${TAG}"
                 sh "docker push ${IMAGE}:latest"
             }
+            post {
+                success {
+                    script {
+                        if (env.BRANCH_NAME == 'main') {
+                            prog("✅ Checkout　✅ Build　✅ Test　✅ Push\n⏳ 等待 devops 核准部署…")
+                        } else {
+                            prog("✅ Checkout　✅ Build　✅ Test　✅ Push")
+                        }
+                    }
+                }
+            }
         }
 
         // dev branch → deploy to test server (192.168.0.65)
         stage('Deploy to Test') {
             when { branch 'dev' }
             steps {
+                script { prog("✅ Checkout　✅ Build　✅ Test　✅ Push\n🚀 部署到測試機 (192.168.0.65)…") }
                 sshagent(['test-server-ssh']) {
                     sh """
                         ssh -o StrictHostKeyChecking=no root@192.168.0.65 '
@@ -95,6 +138,7 @@ pipeline {
                 GCP_SA_EMAIL     = credentials('gcp-sa-email')
             }
             steps {
+                script { prog("✅ Checkout　✅ Build　✅ Test　✅ Push\n🚀 部署到雲端中 (ECS + Cloud Run)…") }
                 withCredentials([
                     string(credentialsId: 'jenkins-oidc-aws', variable: 'JWT_AWS'),
                     string(credentialsId: 'jenkins-oidc-gcp', variable: 'JWT_GCP'),
@@ -205,14 +249,14 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
     post {
         success {
             echo "✅ Build ${TAG} (${env.BRANCH_NAME}) deployed successfully"
-            notifyDiscord("✅ **部署成功** ｜ 分支 `${env.BRANCH_NAME}` ｜ commit `${TAG}` ｜ ${env.BUILD_URL}")
+            script { prog("✅ Checkout　✅ Build　✅ Test　✅ Push　✅ Deploy\n🎉 **部署成功**") }
         }
         failure {
             echo "❌ Build ${TAG} (${env.BRANCH_NAME}) failed"
-            notifyDiscord("❌ **Build 失敗** ｜ 分支 `${env.BRANCH_NAME}` ｜ commit `${TAG}` ｜ ${env.BUILD_URL}")
+            script { prog("❌ **Build 失敗** — 查看 log 連結") }
         }
         aborted {
-            notifyDiscord("⚠️ **Build 中止（未核准部署）** ｜ 分支 `${env.BRANCH_NAME}` ｜ commit `${TAG}` ｜ ${env.BUILD_URL}")
+            script { prog("⚠️ **中止／未核准部署**") }
         }
         always  { sh "docker rmi ${IMAGE}:${TAG} || true" }
     }

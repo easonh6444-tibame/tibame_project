@@ -1,6 +1,8 @@
 from flask import Flask, jsonify, render_template_string
 import requests
 import time
+import os
+import json
 
 app = Flask(__name__)
 
@@ -10,6 +12,47 @@ start_time = time.time()
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 }
+
+# ── 股票歷史資料持久化（GCS）─────────────────────────────────────────────
+# 把每次抓到的價格點存到 GCS，重新整理 / 重新部署都不會空白。
+# Cloud Run 以 runtime SA(jenkins-deploy) 自動取得憑證，需對 bucket 有 objectAdmin。
+STOCK_BUCKET = os.environ.get('STOCK_BUCKET', '')
+HISTORY_BLOB = 'history.json'
+MAX_POINTS = 300
+
+
+def _history_blob():
+    from google.cloud import storage
+    return storage.Client().bucket(STOCK_BUCKET).blob(HISTORY_BLOB)
+
+
+def load_history():
+    """讀取已存的價格歷史（list of {t, p}）；失敗或未設定 bucket 則回空陣列。"""
+    if not STOCK_BUCKET:
+        return []
+    try:
+        blob = _history_blob()
+        if blob.exists():
+            return json.loads(blob.download_as_text())
+    except Exception:
+        pass
+    return []
+
+
+def save_point(t, price):
+    """把一個價格點 append 進歷史，只保留最近 MAX_POINTS 筆。"""
+    if not STOCK_BUCKET:
+        return
+    try:
+        blob = _history_blob()
+        hist = json.loads(blob.download_as_text()) if blob.exists() else []
+        # 同一個時間戳不重複寫入
+        if not hist or hist[-1].get('t') != t:
+            hist.append({'t': t, 'p': price})
+            hist = hist[-MAX_POINTS:]
+            blob.upload_from_string(json.dumps(hist), content_type='application/json')
+    except Exception:
+        pass
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -164,6 +207,11 @@ HTML_TEMPLATE = """
         async function start() {
             const hRes = await fetch('/api/holdings');
             const holdings = await hRes.json();
+            // 載入已持久化的歷史走勢，讓圖一開始就有資料（不會空白）
+            try {
+                const hist = await (await fetch('/api/history')).json();
+                hist.forEach(pt => { priceLabels.push(pt.t); priceData.push(pt.p); });
+            } catch (e) { console.error('history load failed', e); }
             initCharts(holdings);
             updateData();
             setInterval(updateData, 10000);
@@ -218,6 +266,9 @@ def get_data():
         ts = meta.get('regularMarketTime')
         tstr = time.strftime('%H:%M:%S', time.gmtime(ts + 8 * 3600)) if ts else '--:--:--'
 
+        # 把這個價格點存進 GCS 歷史
+        save_point(tstr, float(curr))
+
         return jsonify(
             current_price=float(curr),
             yesterday_price=float(yest),
@@ -229,6 +280,12 @@ def get_data():
         )
     except Exception as e:
         return jsonify(error=str(e)), 500
+
+
+@app.route('/api/history')
+def get_history():
+    """回傳已持久化的價格歷史，給前端載入時把走勢圖補滿。"""
+    return jsonify(load_history())
 
 
 @app.route('/api/holdings')
