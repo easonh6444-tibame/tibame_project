@@ -337,9 +337,10 @@ resource "google_project_iam_member" "jenkins_run_developer" {
 }
 
 # 讓 pipeline(jenkins-deploy) 能建立 / 管理 HTTPS Load Balancer 資源
+# 用 loadBalancerAdmin（最小必要）而非 compute.admin，避免過度授權
 resource "google_project_iam_member" "jenkins_compute_admin" {
   project = "ckc101-13"
-  role    = "roles/compute.admin"
+  role    = "roles/compute.loadBalancerAdmin"
   member  = "serviceAccount:${google_service_account.jenkins_deploy.email}"
 }
 
