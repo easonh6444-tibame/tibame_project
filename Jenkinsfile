@@ -77,7 +77,8 @@ pipeline {
             steps {
                 withCredentials([
                     string(credentialsId: 'jenkins-oidc-aws', variable: 'JWT_AWS'),
-                    string(credentialsId: 'jenkins-oidc-gcp', variable: 'JWT_GCP')
+                    string(credentialsId: 'jenkins-oidc-gcp', variable: 'JWT_GCP'),
+                    string(credentialsId: 'cloudflare-api-token', variable: 'CLOUDFLARE_API_TOKEN')
                 ]) {
                     sh '''#!/bin/bash
 set -euo pipefail
@@ -170,7 +171,8 @@ terraform apply -input=false -auto-approve \
   -target=google_compute_global_forwarding_rule.https \
   -target=google_compute_url_map.https_redirect \
   -target=google_compute_target_http_proxy.app \
-  -target=google_compute_global_forwarding_rule.http
+  -target=google_compute_global_forwarding_rule.http \
+  -target=cloudflare_record.app
 cd ..
 unset GOOGLE_OAUTH_ACCESS_TOKEN
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN

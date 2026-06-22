@@ -4,6 +4,12 @@ terraform {
     key    = "terraform/state"
     region = "ap-northeast-1"
   }
+  required_providers {
+    cloudflare = {
+      source  = "cloudflare/cloudflare"
+      version = "~> 4"
+    }
+  }
 }
 
 provider "aws" {
@@ -14,6 +20,9 @@ provider "google" {
   project = "ckc101-13"
   region  = "asia-east1"
 }
+
+# api_token 由環境變數 CLOUDFLARE_API_TOKEN 提供（不寫進程式碼/state）
+provider "cloudflare" {}
 
 # ── AWS ──────────────────────────────────────────
 
@@ -220,6 +229,18 @@ resource "google_compute_global_forwarding_rule" "http" {
 output "app_lb_ip" {
   description = "固定對外 IP；在 Cloudflare 用 A 記錄把 app_domain 指到這裡（DNS-only 灰雲）"
   value       = var.enable_compute ? google_compute_global_address.app[0].address : null
+}
+
+# Cloudflare DNS：把 app_domain 的 A 記錄自動指向上面的 LB 固定 IP
+# proxied=false（灰雲）讓 Google 託管憑證能完成驗證
+resource "cloudflare_record" "app" {
+  count   = var.enable_compute ? 1 : 0
+  zone_id = var.cloudflare_zone_id
+  name    = var.app_domain
+  type    = "A"
+  value   = google_compute_global_address.app[0].address
+  proxied = false
+  ttl     = 60
 }
 
 
