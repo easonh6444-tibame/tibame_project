@@ -82,6 +82,8 @@ pipeline {
         }
 
         stage('Push') {
+            // MR(change request) 只跑到 Build+Test 當作 PR 測試；只有 main/dev 才 push + 部署
+            when { anyOf { branch 'main'; branch 'dev' } }
             steps {
                 sh "docker push ${IMAGE}:${TAG}"
                 sh "docker push ${IMAGE}:latest"
@@ -118,7 +120,11 @@ pipeline {
 
         // main branch → deploy to AWS (ECR+ECS) and GCP (Artifact Registry+Cloud Run) via Jenkins OIDC
         stage('Deploy to Cloud') {
-            when { branch 'main' }
+            // beforeInput：先判斷分支再決定要不要問審批，否則 MR 也會被要求核准
+            when {
+                branch 'main'
+                beforeInput true
+            }
             // 部署前需 devops 手動核准（只有 devops 或管理員能按）
             input {
                 message 'Build 已完成，是否部署到雲端？'
