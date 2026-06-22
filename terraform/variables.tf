@@ -21,3 +21,9 @@ variable "cloudflare_zone_id" {
   type        = string
   default     = "2b5f3803c6e3e11d3cf6e6a908a7a0cd"
 }
+
+variable "stock_bucket" {
+  description = "GCS bucket for persisting stock price history"
+  type        = string
+  default     = "ckc101-13-stock-data"
+}

@@ -123,8 +123,27 @@ resource "google_cloud_run_v2_service" "app" {
       ports {
         container_port = 19191
       }
+      env {
+        name  = "STOCK_BUCKET"
+        value = var.stock_bucket
+      }
     }
   }
+}
+
+# 股票歷史資料持久化用的 GCS bucket（bootstrap：由 owner 建立/管理，
+# 不在 Jenkinsfile -target 內；Cloud Run 用 env 字串引用、runtime SA 有 objectAdmin）
+resource "google_storage_bucket" "stock_data" {
+  name                        = var.stock_bucket
+  location                    = "asia-east1"
+  uniform_bucket_level_access = true
+  force_destroy               = true
+}
+
+resource "google_storage_bucket_iam_member" "stock_data_rw" {
+  bucket = google_storage_bucket.stock_data.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.jenkins_deploy.email}"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public" {
