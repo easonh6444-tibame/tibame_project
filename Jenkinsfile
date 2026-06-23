@@ -1,9 +1,30 @@
-// Progress tracking for main/dev builds via a single editable Discord message.
-// MR builds are silent during pipeline — one embed fires only after tests pass or fail.
+// All Discord notifications use embeds.
+// main/dev builds track progress via a single editable embed.
+// MR builds are silent during pipeline — one embed fires only after tests pass.
+// color: 3447003=blue(running)  3066993=green(ok)  15158332=red(fail)  15105570=orange
 
-def discordSend(String content) {
+// Build the embed payload Map from opts (title/description/url/color/fields).
+def buildEmbed(Map opts) {
+    def embed = [color: (opts.color ?: 3447003)]
+    if (opts.title)       embed.title       = opts.title
+    if (opts.description) embed.description = opts.description
+    if (opts.url)         embed.url         = opts.url
+    if (opts.fields)      embed.fields      = opts.fields
+    return embed
+}
+
+// Send a one-shot embed (no later edits).
+def discordEmbed(Map opts) {
     withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
-        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([content: content]), encoding: 'UTF-8')
+        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([embeds: [buildEmbed(opts)]]), encoding: 'UTF-8')
+        sh 'curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true; rm -f dc.json'
+    }
+}
+
+// Send an embed and remember its message id so it can be edited later.
+def discordSendEmbed(Map opts) {
+    withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
+        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([embeds: [buildEmbed(opts)]]), encoding: 'UTF-8')
         def resp = sh(returnStdout: true, script: 'curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}?wait=true" || echo "{}"').trim()
         sh 'rm -f dc.json'
         def mid = ''
@@ -12,9 +33,10 @@ def discordSend(String content) {
     }
 }
 
-def discordEdit(String content) {
+// Edit the previously-sent embed (falls back to a new message if no id stored).
+def discordEditEmbed(Map opts) {
     withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
-        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([content: content]), encoding: 'UTF-8')
+        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([embeds: [buildEmbed(opts)]]), encoding: 'UTF-8')
         def mid = ''
         try { mid = readFile('.discord_mid').trim() } catch (ignored) {}
         if (mid) {
@@ -26,25 +48,18 @@ def discordEdit(String content) {
     }
 }
 
-// One-shot Discord embed. color: 3066993=green  15158332=red  15105570=orange
-def discordEmbed(Map opts) {
-    def embed = [color: (opts.color ?: 3447003)]
-    if (opts.title)       embed.title       = opts.title
-    if (opts.description) embed.description = opts.description
-    if (opts.url)         embed.url         = opts.url
-    if (opts.fields)      embed.fields      = opts.fields
-    withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
-        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([embeds: [embed]]), encoding: 'UTF-8')
-        sh 'curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true; rm -f dc.json'
-    }
-}
-
-def progHeader() {
+def progTitle() {
     def sha = (env.GIT_COMMIT ?: '').take(7)
-    return "Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}" + (sha ? " `${sha}`" : "")
+    return "Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}" + (sha ? " ${sha}" : "")
 }
-def progStart(String msg) { if (env.CHANGE_ID) return; discordSend(progHeader() + '\n' + msg + '\n' + env.BUILD_URL) }
-def prog(String msg)      { if (env.CHANGE_ID) return; discordEdit(progHeader() + '\n' + msg + '\n' + env.BUILD_URL) }
+def progStart(String msg) {
+    if (env.CHANGE_ID) return
+    discordSendEmbed([title: progTitle(), description: msg, url: env.BUILD_URL, color: 3447003])
+}
+def prog(String msg, int color = 3447003) {
+    if (env.CHANGE_ID) return
+    discordEditEmbed([title: progTitle(), description: msg, url: env.BUILD_URL, color: color])
+}
 
 // ── Gemini AI ────────────────────────────────────────────────────────────────
 
@@ -76,7 +91,7 @@ def callGemini(String sys, String user, String fallback = '（AI 分析暫時無
     }
 }
 
-// Run after tests pass; fetches diff against target branch and asks Gemini to summarise.
+// Run after tests pass; fetch diff against target branch and summarise via the Flue agent.
 def prDiffSummary() {
     def target = env.CHANGE_TARGET ?: 'main'
     def diff = sh(returnStdout: true, script: """
@@ -84,11 +99,36 @@ def prDiffSummary() {
         git diff origin/${target}...HEAD | head -c 7000
     """).trim()
     if (!diff) return '（此 PR 無可分析的程式碼變更）'
-    return callGemini(
-        '你是資深 DevOps 工程師，請用繁體中文撰寫 PR 審查摘要（限 300 字，不使用 emoji）。\n' +
-        '格式：\n### 變更摘要\n（一兩句概述）\n### 主要異動\n（條列，最多 5 點）\n### 需注意\n（潛在風險；若無寫「無特殊風險」）',
-        "PR diff：\n\n${diff}"
-    )
+    return flueSummary(diff)
+}
+
+// Summarise a diff with the Flue agent in ci/flue (model google/gemini-2.5-flash via Pi).
+// stdout is a single JSON line {"text": "...", ...}; decorative output goes to stderr.
+// Falls back to the direct Gemini REST call so an npm/Flue hiccup never blocks the summary.
+def flueSummary(String diff) {
+    try {
+        withCredentials([string(credentialsId: 'gemini-api-key', variable: 'GEMINI_KEY')]) {
+            // Write input JSON via Groovy to avoid shell-escaping the diff on the command line.
+            writeFile(file: 'ci/flue/.flue_input.json',
+                      text: groovy.json.JsonOutput.toJson([message: diff]), encoding: 'UTF-8')
+            def out = sh(returnStdout: true, script: '''
+                cd ci/flue
+                npm ci --no-audit --no-fund >/dev/null 2>&1 || npm install --no-audit --no-fund >/dev/null 2>&1
+                GEMINI_API_KEY="${GEMINI_KEY}" ./node_modules/.bin/flue run pr-summary --input "$(cat .flue_input.json)" 2>/dev/null
+            ''').trim()
+            sh 'rm -f ci/flue/.flue_input.json'
+            def text = new groovy.json.JsonSlurper().parseText(out)?.text?.trim()
+            if (text) return text
+            error 'flue returned empty text'
+        }
+    } catch (ignored) {
+        sh 'rm -f ci/flue/.flue_input.json || true'
+        return callGemini(
+            '你是資深 DevOps 工程師，請用繁體中文撰寫 PR 審查摘要（限 300 字，不使用 emoji）。\n' +
+            '格式：\n### 變更摘要\n（一兩句概述）\n### 主要異動\n（條列，最多 5 點）\n### 需注意\n（潛在風險；若無寫「無特殊風險」）',
+            "PR diff：\n\n${diff}"
+        )
+    }
 }
 
 def deployFailureSummary(String logs) {
@@ -364,7 +404,22 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
                     ])
                     postGitLabMrComment("**AI Code Review** — build #${env.BUILD_NUMBER} passed\n\n${summary}")
                 } else {
-                    prog("all done.")
+                    // A deploy ran iff .deploy_log exists — notify deploy success explicitly.
+                    def deployed = sh(returnStatus: true, script: "test -s .deploy_log") == 0
+                    if (deployed) {
+                        def sha = (env.GIT_COMMIT ?: '').take(7)
+                        def tgt = (env.BRANCH_NAME == 'main') ? 'cloud (ECS + Cloud Run)' : 'test (192.168.0.65)'
+                        prog("build done · test done · push done · deploy done", 3066993)
+                        discordEmbed([
+                            title      : "Deploy succeeded — ${env.BRANCH_NAME} ${sha}",
+                            description: "Deployed to ${tgt}.",
+                            color      : 3066993,
+                            url        : env.BUILD_URL,
+                            fields     : [[name: 'Build', value: "#${env.BUILD_NUMBER}", inline: true]]
+                        ])
+                    } else {
+                        prog("all done.", 3066993)
+                    }
                 }
             }
         }
@@ -374,9 +429,11 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
                 if (!env.CHANGE_ID) {
                     def hasDeployLog = sh(returnStatus: true, script: "test -s .deploy_log") == 0
                     if (hasDeployLog) {
+                        // Deploy failed: read the log, summarise the cause, send a red embed.
                         def logs    = sh(returnStdout: true, script: "tail -80 .deploy_log").trim()
                         def summary = deployFailureSummary(logs)
                         def sha     = (env.GIT_COMMIT ?: '').take(7)
+                        prog("deploy failed — see notification", 15158332)
                         discordEmbed([
                             title      : "Deploy failed — ${env.BRANCH_NAME} ${sha}",
                             description: summary,
@@ -385,17 +442,20 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
                             fields     : [[name: 'Build', value: "#${env.BUILD_NUMBER}", inline: true]]
                         ])
                     } else {
-                        prog("build/test failed — see logs")
+                        prog("build/test failed — see logs", 15158332)
                     }
                 }
             }
         }
         aborted {
-            script { prog("aborted / deploy not approved") }
+            script { prog("aborted / deploy not approved", 15105570) }
         }
         always {
             sh "docker rmi ${IMAGE}:${TAG} || true"
-            sh "rm -f .deploy_log || true"
+        }
+        // cleanup runs last — AFTER success/failure have read .deploy_log.
+        cleanup {
+            sh "rm -f .deploy_log .discord_mid || true"
         }
     }
 }
