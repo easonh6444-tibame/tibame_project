@@ -119,7 +119,9 @@
                 data: { labels: priceLabels, datasets: [{ data: priceData, borderColor: '#3498db',
                     // 線段顏色：高於今日開盤為紅（漲），低於為綠（跌）
                     segment: { borderColor: ctx => (todayOpen != null && ctx.p1.parsed.y >= todayOpen) ? '#e74c3c' : '#2ecc71' },
-                    borderWidth: 2, tension: 0.1, fill: true, backgroundColor: 'rgba(52, 152, 219, 0.05)', pointRadius: 0 }] },
+                    // 填色區域也跟著紅綠：現價高於今日開盤淡紅、低於淡綠
+                    backgroundColor: ctx => { const last = priceData[priceData.length - 1]; return (todayOpen != null && last >= todayOpen) ? 'rgba(231, 76, 60, 0.08)' : 'rgba(46, 204, 113, 0.08)'; },
+                    borderWidth: 2, tension: 0.1, fill: true, pointRadius: 0 }] },
                 options: {
                     animation: false, // 關閉動畫提升 1s 更新頻率下的效能
                     interaction: { intersect: false, mode: 'index' },
