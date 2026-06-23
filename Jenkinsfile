@@ -455,19 +455,11 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
             script {
                 if (!env.CHANGE_ID) {
                     // MR 摘要已在 'AI Review' 階段發出；這裡只處理 main/dev 的部署通知。
-                    // A deploy ran iff .deploy_log exists — notify deploy success explicitly.
+                    // 結果直接編輯進進度訊息（不另發訊息）。A deploy ran iff .deploy_log exists.
                     def deployed = sh(returnStatus: true, script: "test -s .deploy_log") == 0
                     if (deployed) {
-                        def sha = (env.GIT_COMMIT ?: '').take(7)
                         def tgt = (env.BRANCH_NAME == 'main') ? '雲端 (ECS + Cloud Run)' : '測試機 (192.168.0.65)'
                         prog(4, 'done', "已部署到 ${tgt}", 3066993)
-                        discordEmbed([
-                            title      : "Deploy succeeded — ${env.BRANCH_NAME} ${sha}",
-                            description: "Deployed to ${tgt}.",
-                            color      : 3066993,
-                            url        : env.BUILD_URL,
-                            fields     : [[name: 'Build', value: "#${env.BUILD_NUMBER}", inline: true]]
-                        ])
                     } else {
                         prog(4, 'done', '全部完成', 3066993)
                     }
@@ -481,18 +473,10 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
                     def ph = progPhase()
                     def hasDeployLog = sh(returnStatus: true, script: "test -s .deploy_log") == 0
                     if (hasDeployLog) {
-                        // Deploy failed: read the log, summarise the cause, send a red embed.
+                        // Deploy failed: read the log, summarise the cause, fold it into the progress message.
                         def logs    = sh(returnStdout: true, script: "tail -80 .deploy_log").trim()
                         def summary = deployFailureSummary(logs)
-                        def sha     = (env.GIT_COMMIT ?: '').take(7)
-                        prog(3, 'fail', '部署失敗（詳見下方通知）', 15158332)
-                        discordEmbed([
-                            title      : "Deploy failed — ${env.BRANCH_NAME} ${sha}",
-                            description: summary,
-                            color      : 15158332,
-                            url        : env.BUILD_URL,
-                            fields     : [[name: 'Build', value: "#${env.BUILD_NUMBER}", inline: true]]
-                        ])
+                        prog(3, 'fail', "部署失敗\n\n${summary}", 15158332)
                     } else {
                         prog(ph, 'fail', '建置/測試失敗，請查看 log', 15158332)
                     }
