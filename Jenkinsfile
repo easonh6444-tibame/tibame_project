@@ -48,17 +48,50 @@ def discordEditEmbed(Map opts) {
     }
 }
 
-def progTitle() {
-    def sha = (env.GIT_COMMIT ?: '').take(7)
-    return "Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}" + (sha ? " ${sha}" : "")
+// ── Progress embed: one editable message tracking build stages for main/dev ──
+// phase: 0=Build 1=Test 2=Push 3=Deploy (4 = all done). state: run|wait|done|fail.
+def progPayload(int phase, String state, String note, int color) {
+    def labels = ['Build', 'Test', 'Push', 'Deploy']
+    def desc = ''
+    for (int i = 0; i < labels.size(); i++) {
+        String m
+        if (i < phase)       { m = '✅' }
+        else if (i == phase) { m = (state == 'fail') ? '❌' : (state == 'wait') ? '⏳' : '🔵' }
+        else                 { m = '⬜' }
+        desc += m + '  ' + labels[i] + '\n'
+    }
+    if (note) desc += '\n' + note
+    def sha  = (env.GIT_COMMIT ?: '').take(7)
+    def cmsg = ''
+    try { cmsg = readFile('.prog_msg').trim() } catch (ignored) {}
+    return [
+        title      : "Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}",
+        description: (cmsg ? "**${cmsg.take(90)}**\n\n" : '') + desc.trim(),
+        url        : env.BUILD_URL,
+        color      : color,
+        fields     : [
+            [name: 'Commit', value: (sha ?: '—'),                          inline: true],
+            [name: 'Branch', value: (env.BRANCH_NAME ?: '—'),              inline: true],
+            [name: 'Stage',  value: (phase >= 4 ? 'Done' : labels[phase]), inline: true]
+        ]
+    ]
 }
-def progStart(String msg) {
+def progStart() {
     if (env.CHANGE_ID) return
-    discordSendEmbed([title: progTitle(), description: msg, url: env.BUILD_URL, color: 3447003])
+    sh 'git log -1 --pretty=%s > .prog_msg 2>/dev/null || : > .prog_msg'
+    sh 'echo 0 > .prog_phase'
+    discordSendEmbed(progPayload(0, 'run', '建置中…', 3447003))
 }
-def prog(String msg, int color = 3447003) {
+def prog(int phase, String state, String note, int color) {
     if (env.CHANGE_ID) return
-    discordEditEmbed([title: progTitle(), description: msg, url: env.BUILD_URL, color: color])
+    sh "echo ${phase} > .prog_phase"
+    discordEditEmbed(progPayload(phase, state, note, color))
+}
+// Phase stored by the last prog() call — used by the post block to mark failures.
+def progPhase() {
+    def p = 0
+    try { p = (readFile('.prog_phase').trim() ?: '0') as int } catch (ignored) {}
+    return p
 }
 
 // ── Gemini AI ────────────────────────────────────────────────────────────────
@@ -187,7 +220,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                script { if (!env.CHANGE_ID) progStart("starting...") }
+                script { if (!env.CHANGE_ID) progStart() }
             }
         }
 
@@ -195,7 +228,7 @@ pipeline {
             steps {
                 sh "docker build -t ${IMAGE}:${TAG} -t ${IMAGE}:latest ./first_project"
             }
-            post { success { script { prog("build done · testing...") } } }
+            post { success { script { prog(1, 'run', '測試中…', 3447003) } } }
         }
 
         stage('Test') {
@@ -213,7 +246,7 @@ pipeline {
                 """
             }
             post {
-                success { script { prog("build done · test done · pushing...") } }
+                success { script { prog(2, 'run', '推送映像檔到 registry…', 3447003) } }
                 failure { sh "docker rm -f test-${TAG} || true" }
             }
         }
@@ -228,9 +261,9 @@ pipeline {
                 success {
                     script {
                         if (env.BRANCH_NAME == 'main') {
-                            prog("build done · test done · push done · waiting for deploy approval...")
+                            prog(3, 'wait', '等待部署核准…', 3447003)
                         } else {
-                            prog("build done · test done · push done")
+                            prog(3, 'run', '準備部署…', 3447003)
                         }
                     }
                 }
@@ -240,7 +273,7 @@ pipeline {
         stage('Deploy to Test') {
             when { branch 'dev' }
             steps {
-                script { prog("build done · test done · push done · deploying to test (192.168.0.65)...") }
+                script { prog(3, 'run', '部署到測試機 192.168.0.65…', 3447003) }
                 sshagent(['test-server-ssh']) {
                     sh """#!/bin/bash
 set -eo pipefail
@@ -277,7 +310,7 @@ ssh -o StrictHostKeyChecking=no root@192.168.0.65 '
                 GCP_SA_EMAIL     = credentials('gcp-sa-email')
             }
             steps {
-                script { prog("build done · test done · push done · deploying to cloud (ECS + Cloud Run)...") }
+                script { prog(3, 'run', '部署到雲端 ECS + Cloud Run…', 3447003) }
                 withCredentials([
                     string(credentialsId: 'jenkins-oidc-aws', variable: 'JWT_AWS'),
                     string(credentialsId: 'jenkins-oidc-gcp', variable: 'JWT_GCP'),
@@ -408,8 +441,8 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
                     def deployed = sh(returnStatus: true, script: "test -s .deploy_log") == 0
                     if (deployed) {
                         def sha = (env.GIT_COMMIT ?: '').take(7)
-                        def tgt = (env.BRANCH_NAME == 'main') ? 'cloud (ECS + Cloud Run)' : 'test (192.168.0.65)'
-                        prog("build done · test done · push done · deploy done", 3066993)
+                        def tgt = (env.BRANCH_NAME == 'main') ? '雲端 (ECS + Cloud Run)' : '測試機 (192.168.0.65)'
+                        prog(4, 'done', "已部署到 ${tgt}", 3066993)
                         discordEmbed([
                             title      : "Deploy succeeded — ${env.BRANCH_NAME} ${sha}",
                             description: "Deployed to ${tgt}.",
@@ -418,7 +451,7 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
                             fields     : [[name: 'Build', value: "#${env.BUILD_NUMBER}", inline: true]]
                         ])
                     } else {
-                        prog("all done.", 3066993)
+                        prog(4, 'done', '全部完成', 3066993)
                     }
                 }
             }
@@ -427,13 +460,14 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
             echo "Build ${TAG} (${env.BRANCH_NAME}) failed"
             script {
                 if (!env.CHANGE_ID) {
+                    def ph = progPhase()
                     def hasDeployLog = sh(returnStatus: true, script: "test -s .deploy_log") == 0
                     if (hasDeployLog) {
                         // Deploy failed: read the log, summarise the cause, send a red embed.
                         def logs    = sh(returnStdout: true, script: "tail -80 .deploy_log").trim()
                         def summary = deployFailureSummary(logs)
                         def sha     = (env.GIT_COMMIT ?: '').take(7)
-                        prog("deploy failed — see notification", 15158332)
+                        prog(3, 'fail', '部署失敗（詳見下方通知）', 15158332)
                         discordEmbed([
                             title      : "Deploy failed — ${env.BRANCH_NAME} ${sha}",
                             description: summary,
@@ -442,20 +476,20 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
                             fields     : [[name: 'Build', value: "#${env.BUILD_NUMBER}", inline: true]]
                         ])
                     } else {
-                        prog("build/test failed — see logs", 15158332)
+                        prog(ph, 'fail', '建置/測試失敗，請查看 log', 15158332)
                     }
                 }
             }
         }
         aborted {
-            script { prog("aborted / deploy not approved", 15105570) }
+            script { prog(3, 'wait', '已取消（未核准部署）', 15105570) }
         }
         always {
             sh "docker rmi ${IMAGE}:${TAG} || true"
         }
-        // cleanup runs last — AFTER success/failure have read .deploy_log.
+        // cleanup runs last — AFTER success/failure have read the progress/deploy files.
         cleanup {
-            sh "rm -f .deploy_log .discord_mid || true"
+            sh "rm -f .deploy_log .discord_mid .prog_msg .prog_phase || true"
         }
     }
 }
