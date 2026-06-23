@@ -71,6 +71,7 @@
     <script>
         Chart.register(ChartDataLabels);
         let priceChart, pieChart;
+        let todayOpen = null; // 今日開盤價，用來決定折線各線段顏色
         const priceData = [];
         const priceLabels = [];
 
@@ -79,6 +80,7 @@
                 const res = await fetch('/api/data?' + Date.now());
                 const data = await res.json();
                 if(data.error) return;
+                todayOpen = data.open; // 更新今日開盤，折線顏色依此判斷
 
                 // 更新大數字
                 const p = data.current_price;
@@ -114,7 +116,10 @@
         function initCharts(holdings) {
             priceChart = new Chart(document.getElementById('priceChart'), {
                 type: 'line',
-                data: { labels: priceLabels, datasets: [{ data: priceData, borderColor: '#3498db', borderWidth: 2, tension: 0.1, fill: true, backgroundColor: 'rgba(52, 152, 219, 0.05)', pointRadius: 0 }] },
+                data: { labels: priceLabels, datasets: [{ data: priceData, borderColor: '#3498db',
+                    // 線段顏色：高於今日開盤為紅（漲），低於為綠（跌）
+                    segment: { borderColor: ctx => (todayOpen != null && ctx.p1.parsed.y >= todayOpen) ? '#e74c3c' : '#2ecc71' },
+                    borderWidth: 2, tension: 0.1, fill: true, backgroundColor: 'rgba(52, 152, 219, 0.05)', pointRadius: 0 }] },
                 options: {
                     animation: false, // 關閉動畫提升 1s 更新頻率下的效能
                     interaction: { intersect: false, mode: 'index' },
