@@ -1,401 +1,167 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nebula Dash v2.1 - Control Center</title>
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <!-- Custom Style Sheet -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>✨</text></svg>">
+    <title>0050 專業儀表板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <style>
+        body { font-family: "PingFang TC", "Microsoft JhengHei", sans-serif; background: #f0f2f5; color: #1a1a1a; margin: 0; padding: 20px; }
+        .container { max-width: 1100px; margin: 0 auto; }
+
+        /* 頂部價格區 */
+        .header-box { background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .main-info { display: flex; align-items: center; gap: 20px; margin-bottom: 15px; }
+        #price { font-size: 3.2rem; font-weight: 800; line-height: 1; }
+        .price-details { display: flex; flex-direction: column; }
+        #change { font-size: 1.4rem; font-weight: 600; }
+        #update-time { color: #888; font-size: 0.9rem; }
+
+        /* 數據欄位區 */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; border-top: 1px solid #eee; pt: 15px; padding-top: 15px; }
+        .stat-item { display: flex; flex-direction: column; }
+        .stat-label { font-size: 0.85rem; color: #666; margin-bottom: 4px; }
+        .stat-value { font-size: 1.1rem; font-weight: 600; }
+
+        .up { color: #d63031; }
+        .down { color: #27ae60; }
+
+        /* 圖表區 */
+        .grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        h2 { font-size: 1.1rem; color: #444; margin: 0 0 20px 0; border-left: 4px solid #3498db; padding-left: 10px; }
+
+        @media (max-width: 850px) { .grid { grid-template-columns: 1fr; } }
+    </style>
 </head>
 <body>
-    <!-- Background glowing ambient blobs -->
-    <div class="glow-orb orb-1"></div>
-    <div class="glow-orb orb-2"></div>
-    <div class="glow-orb orb-3"></div>
-
-    <div class="app-container">
-        <!-- Sidebar or Header Panel -->
-        <header class="dashboard-header glass-card">
-            <div class="brand">
-                <span class="brand-logo">🌌</span>
-                <div>
-                    <h1 id="app-title">Nebula Dash v2.1</h1>
-                    <p class="subtitle">v2.1 · Enhanced Control Panel</p>
+    <div class="container">
+        <div class="header-box">
+            <div style="margin-bottom: 10px; font-weight: bold; color: #555;">元大台灣50 (0050.TW)</div>
+            <div class="main-info">
+                <span id="price">--</span>
+                <div class="price-details">
+                    <span id="change">--</span>
+                    <span id="update-time">初始化中...</span>
                 </div>
             </div>
-            <div class="server-meta">
-                <div class="meta-item">
-                    <span class="label">Target Port</span>
-                    <span class="value accent-pink">19191</span>
-                </div>
-                <div class="meta-item">
-                    <span class="label">Status</span>
-                    <span class="status-indicator-wrapper">
-                        <span class="status-dot pulsing"></span>
-                        <span class="value" id="server-status">Connecting...</span>
-                    </span>
-                </div>
-                <div class="meta-item">
-                    <span class="label">Server Uptime</span>
-                    <span class="value" id="server-uptime">0s</span>
-                </div>
-                <div class="meta-item">
-                    <span class="label">Current Time</span>
-                    <span class="value" style="color:#ffd700" id="live-clock">--:--:--</span>
-                </div>
-                <div class="meta-item">
-                    <span class="label">Server IP</span>
-                    <span class="value font-mono" id="client-ip">...</span>
-                </div>
+            <div class="stats-grid">
+                <div class="stat-item"><span class="stat-label">昨收</span><span id="yest-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">開盤</span><span id="open-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">最高</span><span id="high-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">最低</span><span id="low-price" class="stat-value">--</span></div>
+                <div class="stat-item"><span class="stat-label">成交量</span><span id="volume" class="stat-value">--</span></div>
             </div>
-        </header>
+        </div>
 
-        <!-- Metric Grid -->
-        <main class="dashboard-grid">
-            
-            <!-- CPU Metric Card -->
-            <section class="metric-card glass-card" id="cpu-card">
-                <div class="card-header">
-                    <h3>Processor Load</h3>
-                    <span class="icon">💻</span>
-                </div>
-                <div class="card-body progress-body">
-                    <div class="progress-ring-container">
-                        <svg class="progress-ring" width="120" height="120">
-                            <circle class="progress-ring-bg" stroke="rgba(255, 255, 255, 0.1)" stroke-width="8" fill="transparent" r="50" cx="60" cy="60"/>
-                            <circle class="progress-ring-circle" id="cpu-progress" stroke="url(#cyan-gradient)" stroke-width="8" stroke-dasharray="314.16" stroke-dashoffset="314.16" stroke-linecap="round" fill="transparent" r="50" cx="60" cy="60"/>
-                            <defs>
-                                <linearGradient id="cyan-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stop-color="#00f2fe"/>
-                                    <stop offset="100%" stop-color="#4facfe"/>
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                        <div class="progress-text">
-                            <span class="pct" id="cpu-val">0%</span>
-                            <span class="desc">CPU Load</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Memory Metric Card -->
-            <section class="metric-card glass-card" id="mem-card">
-                <div class="card-header">
-                    <h3>Memory Allocation</h3>
-                    <span class="icon">🧠</span>
-                </div>
-                <div class="card-body progress-body">
-                    <div class="progress-ring-container">
-                        <svg class="progress-ring" width="120" height="120">
-                            <circle class="progress-ring-bg" stroke="rgba(255, 255, 255, 0.1)" stroke-width="8" fill="transparent" r="50" cx="60" cy="60"/>
-                            <circle class="progress-ring-circle" id="mem-progress" stroke="url(#pink-gradient)" stroke-width="8" stroke-dasharray="314.16" stroke-dashoffset="314.16" stroke-linecap="round" fill="transparent" r="50" cx="60" cy="60"/>
-                            <defs>
-                                <linearGradient id="pink-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" stop-color="#ff0844"/>
-                                    <stop offset="100%" stop-color="#ffb199"/>
-                                </linearGradient>
-                            </defs>
-                        </svg>
-                        <div class="progress-text">
-                            <span class="pct" id="mem-val">0%</span>
-                            <span class="desc">RAM Used</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- System Info / Network -->
-            <section class="metric-card glass-card" id="network-card">
-                <div class="card-header">
-                    <h3>Bandwidth / Sessions</h3>
-                    <span class="icon">🚀</span>
-                </div>
-                <div class="card-body flex-column">
-                    <div class="network-stats">
-                        <div class="stat-row">
-                            <span class="label">Traffic Out:</span>
-                            <span class="val font-mono" id="network-val">0.0 MB/s</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">Active Sessions:</span>
-                            <span class="val font-mono" id="sessions-val">0</span>
-                        </div>
-                        <div class="stat-row">
-                            <span class="label">API Database:</span>
-                            <span class="val accent-green" id="db-val">Healthy</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Task Management Panel (CRUD) -->
-            <section class="task-panel glass-card">
-                <div class="panel-header">
-                    <h2>Project Checklist & Dev API Tasks</h2>
-                    <p class="description">Live interactive panel querying Flask's REST APIs. Add, complete, and delete tasks dynamically.</p>
-                </div>
-                
-                <!-- Add Task Form -->
-                <form id="task-form" class="task-input-group">
-                    <div class="input-wrapper">
-                        <input type="text" id="task-title-input" placeholder="What requires execution next?" required>
-                        <input type="text" id="task-desc-input" placeholder="Optional details...">
-                    </div>
-                    <button type="submit" class="neon-btn">
-                        <span>Deploy Task</span>
-                        <span class="btn-icon">⚡</span>
-                    </button>
-                </form>
-
-                <!-- Tasks Listing -->
-                <div class="task-list-wrapper">
-                    <div class="loader" id="tasks-loader">
-                        <div class="spinner"></div>
-                        <span>Syncing Checklist...</span>
-                    </div>
-                    <ul class="task-list" id="task-list-element">
-                        <!-- Loaded dynamically via javascript -->
-                    </ul>
-                </div>
-            </section>
-
-        </main>
-
-        <!-- S3 Storage Hub (Feature 3) -->
-        <section class="task-panel glass-card" id="s3-section" style="margin-top:0">
-            <div class="panel-header">
-                <h2>☁️ S3 Storage Hub</h2>
-                <p class="description">AWS S3 檔案上傳 &amp; 下載管理 — Bucket: <span id="s3-bucket-label" style="color:#00f2fe;font-family:monospace"></span></p>
+        <div class="grid">
+            <div class="card">
+                <h2>分時走勢</h2>
+                <canvas id="priceChart" height="180"></canvas>
             </div>
-
-            <!-- Upload area -->
-            <div id="s3-drop-zone" style="border:2px dashed rgba(168,85,247,.35);border-radius:12px;padding:32px 20px;text-align:center;cursor:pointer;transition:.25s;margin-bottom:16px">
-                <span style="font-size:36px">📁</span>
-                <p style="font-weight:600;margin:8px 0 4px">拖曳檔案到這裡</p>
-                <p style="color:rgba(232,234,246,.55);font-size:13px">或 <span id="s3-browse" style="color:#a855f7;cursor:pointer;text-decoration:underline">點擊瀏覽</span> 選擇檔案</p>
-                <input type="file" id="s3-file-input" multiple style="display:none">
+            <div class="card">
+                <h2>成分股佔比總覽</h2>
+                <canvas id="pieChart"></canvas>
             </div>
-
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-                <span id="s3-selected-label" style="flex:1;font-size:13px;color:rgba(232,234,246,.55)">尚未選擇檔案</span>
-                <button id="s3-clear-btn" class="neon-btn" style="display:none;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);font-size:13px;padding:8px 16px">✕ 清除</button>
-                <button id="s3-upload-btn" class="neon-btn" disabled style="opacity:.45;font-size:13px;padding:8px 16px">🚀 上傳到 S3</button>
-            </div>
-
-            <!-- Upload progress -->
-            <div id="s3-progress-wrap" style="display:none;margin-bottom:16px">
-                <div style="display:flex;justify-content:space-between;font-size:12px;color:rgba(232,234,246,.55);margin-bottom:6px">
-                    <span id="s3-progress-name">上傳中...</span>
-                    <span id="s3-progress-pct">0%</span>
-                </div>
-                <div style="height:6px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden">
-                    <div id="s3-progress-bar" style="height:100%;background:linear-gradient(90deg,#a855f7,#00f2fe);border-radius:99px;width:0%;transition:width .3s ease"></div>
-                </div>
-            </div>
-
-            <!-- File list -->
-            <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-                <input id="s3-search" type="text" placeholder="🔍 搜尋檔案..." style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#e8eaf6;font-size:13px;padding:8px 12px;outline:none">
-                <button id="s3-refresh-btn" class="neon-btn" style="font-size:13px;padding:8px 16px">🔄 重新整理</button>
-            </div>
-
-            <div style="overflow-x:auto">
-                <table style="width:100%;border-collapse:collapse">
-                    <thead>
-                        <tr style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:rgba(232,234,246,.55)">
-                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">檔案名稱</th>
-                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">大小</th>
-                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">修改時間</th>
-                            <th style="text-align:left;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.08)">操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="s3-files-tbody">
-                        <tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(232,234,246,.55)">
-                            <div style="width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:#00f2fe;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px"></div>
-                            載入中...
-                        </td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <footer class="app-footer">
-            <p>Designed with ❤️ and running on <code>0.0.0.0:19191</code> | Flask Application Scaffolding · v2.1</p>
-        </footer>
+        </div>
+        <div style="text-align:center; color:#999; font-size:0.85rem; margin-top:20px;">資料來源：Yahoo Finance</div>
     </div>
 
-    <!-- Script loading -->
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script>
-    // ── S3 Storage Hub ────────────────────────────────────────────────────────
-    (function () {
-        const dropZone    = document.getElementById('s3-drop-zone');
-        const fileInput   = document.getElementById('s3-file-input');
-        const browseBtn   = document.getElementById('s3-browse');
-        const uploadBtn   = document.getElementById('s3-upload-btn');
-        const clearBtn    = document.getElementById('s3-clear-btn');
-        const selLabel    = document.getElementById('s3-selected-label');
-        const progressWrap= document.getElementById('s3-progress-wrap');
-        const progressBar = document.getElementById('s3-progress-bar');
-        const progressPct = document.getElementById('s3-progress-pct');
-        const progressName= document.getElementById('s3-progress-name');
-        const searchInput = document.getElementById('s3-search');
-        const refreshBtn  = document.getElementById('s3-refresh-btn');
-        const tbody       = document.getElementById('s3-files-tbody');
-        let selectedFiles = [], allFiles = [];
+        Chart.register(ChartDataLabels);
+        let priceChart, pieChart;
+        const priceData = [];
+        const priceLabels = [];
 
-        // Populate bucket label
-        fetch('/api/s3/list').then(r => r.json()).then(d => {
-            const el = document.getElementById('s3-bucket-label');
-            if (el && d.bucket) el.textContent = d.bucket;
-        }).catch(() => {});
-
-        // File picker
-        browseBtn.addEventListener('click', () => fileInput.click());
-        dropZone.addEventListener('click', e => { if (!e.target.closest('#s3-browse')) fileInput.click(); });
-        ['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor='#a855f7'; }));
-        ['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.style.borderColor='rgba(168,85,247,.35)'; }));
-        dropZone.addEventListener('drop', e => { const f = Array.from(e.dataTransfer.files); if (f.length) setFiles(f); });
-        fileInput.addEventListener('change', () => { if (fileInput.files.length) setFiles(Array.from(fileInput.files)); });
-
-        function setFiles(files) {
-            selectedFiles = files;
-            selLabel.textContent = files.length === 1 ? files[0].name : `${files.length} 個檔案已選取`;
-            selLabel.style.color = '#00f2fe';
-            uploadBtn.disabled = false; uploadBtn.style.opacity = '1';
-            clearBtn.style.display = '';
-        }
-
-        clearBtn.addEventListener('click', () => {
-            selectedFiles = []; fileInput.value = '';
-            selLabel.textContent = '尚未選擇檔案'; selLabel.style.color = '';
-            uploadBtn.disabled = true; uploadBtn.style.opacity = '.45';
-            clearBtn.style.display = 'none';
-            progressWrap.style.display = 'none';
-        });
-
-        // Upload
-        uploadBtn.addEventListener('click', async () => {
-            if (!selectedFiles.length) return;
-            uploadBtn.disabled = true; uploadBtn.style.opacity = '.45';
-            progressWrap.style.display = '';
-            for (const file of selectedFiles) {
-                progressName.textContent = file.name;
-                let fp = 0;
-                const t = setInterval(() => { fp = Math.min(fp + 3, 85); progressBar.style.width = fp + '%'; progressPct.textContent = fp + '%'; }, 80);
-                try {
-                    const fd = new FormData(); fd.append('file', file);
-                    const res = await fetch('/api/s3/upload', { method: 'POST', body: fd });
-                    clearInterval(t);
-                    if (res.ok) { progressBar.style.width = '100%'; progressPct.textContent = '100%'; }
-                    else { const d = await res.json(); throw new Error(d.error || '上傳失敗'); }
-                } catch (err) { clearInterval(t); console.error(err); }
-                await new Promise(r => setTimeout(r, 400));
-            }
-            uploadBtn.disabled = false; uploadBtn.style.opacity = '1';
-            clearBtn.click(); loadFiles();
-        });
-
-        // Load file list
-        async function loadFiles() {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(232,234,246,.55)"><div style="width:24px;height:24px;border:3px solid rgba(255,255,255,.1);border-top-color:#00f2fe;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px"></div>載入中...</td></tr>';
+        async function updateData() {
             try {
-                const res = await fetch('/api/s3/list');
+                const res = await fetch('/api/data?' + Date.now());
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error || '無法取得列表');
-                allFiles = data.files || [];
-                renderFiles(allFiles);
-                const el = document.getElementById('s3-bucket-label');
-                if (el && data.bucket) el.textContent = data.bucket;
-            } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(255,68,68,.8)">⚠️ ${err.message}</td></tr>`;
-            }
+                if(data.error) return;
+
+                // 更新大數字
+                const p = data.current_price;
+                const y = data.yesterday_price;
+                const diff = (p - y).toFixed(2);
+                const pct = ((diff / y) * 100).toFixed(2);
+
+                document.getElementById('price').innerText = p.toFixed(2);
+                const changeEl = document.getElementById('change');
+                changeEl.innerText = `${diff > 0 ? '▲' : '▼'} ${Math.abs(diff)} (${pct}%)`;
+                changeEl.className = diff >= 0 ? 'up' : 'down';
+                document.getElementById('price').className = diff >= 0 ? 'up' : 'down';
+
+                // 更新數值面板
+                document.getElementById('yest-price').innerText = y.toFixed(2);
+                document.getElementById('open-price').innerText = data.open.toFixed(2);
+                document.getElementById('high-price').innerText = data.high.toFixed(2);
+                document.getElementById('low-price').innerText = data.low.toFixed(2);
+                document.getElementById('volume').innerText = data.volume.toLocaleString() + ' 張';
+                document.getElementById('update-time').innerText = data.time + ' 更新';
+
+                // 更新圖表
+                const now = data.time.split(' ')[0]; // 只取時間部分
+                if (priceLabels[priceLabels.length - 1] !== now) {
+                    priceLabels.push(now);
+                    priceData.push(p);
+                    if (priceLabels.length > 100) { priceLabels.shift(); priceData.shift(); }
+                    priceChart.update('none'); // 無動畫更新
+                }
+            } catch (e) { console.error("Fetch error", e); }
         }
 
-        function fmtBytes(b) {
-            if (!b) return '—';
-            const u = ['B','KB','MB','GB']; let i = 0;
-            while (b >= 1024 && i < 3) { b /= 1024; i++; }
-            return b.toFixed(i ? 1 : 0) + ' ' + u[i];
-        }
-        function fmtDate(iso) {
-            return iso ? new Date(iso).toLocaleString('zh-TW', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—';
-        }
-        function fmtIcon(n) {
-            const e = (n.split('.').pop() || '').toLowerCase();
-            return {pdf:'📄',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',gif:'🖼️',mp4:'🎬',mp3:'🎵',zip:'🗜️',py:'🐍',js:'📜',html:'🌐',css:'🎨',json:'📋',csv:'📊',txt:'📝'}[e] || '📦';
-        }
-        function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function initCharts(holdings) {
+            priceChart = new Chart(document.getElementById('priceChart'), {
+                type: 'line',
+                data: { labels: priceLabels, datasets: [{ data: priceData, borderColor: '#3498db', borderWidth: 2, tension: 0.1, fill: true, backgroundColor: 'rgba(52, 152, 219, 0.05)', pointRadius: 0 }] },
+                options: {
+                    animation: false, // 關閉動畫提升 1s 更新頻率下的效能
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: { legend: { display: false }, datalabels: { display: false } },
+                    scales: {
+                        x: { ticks: { autoSkip: true, maxTicksLimit: 10 } },
+                        y: { ticks: { callback: v => v.toFixed(1) } }
+                    }
+                }
+            });
 
-        function renderFiles(files) {
-            if (!files.length) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:32px;color:rgba(232,234,246,.55)">☁️ Bucket 是空的</td></tr>';
-                return;
-            }
-            tbody.innerHTML = files.map(f => `
-                <tr style="border-bottom:1px solid rgba(255,255,255,.04)">
-                    <td style="padding:10px 12px">
-                        <span style="font-size:18px">${fmtIcon(f.key)}</span>
-                        <span style="margin-left:8px;font-weight:500">${esc(f.key.split('/').pop())}</span>
-                        <div style="font-size:11px;color:rgba(232,234,246,.4);font-family:monospace;margin-top:2px">${esc(f.key)}</div>
-                    </td>
-                    <td style="padding:10px 12px;font-size:12px;font-family:monospace;color:rgba(232,234,246,.55)">${fmtBytes(f.size)}</td>
-                    <td style="padding:10px 12px;font-size:12px;color:rgba(232,234,246,.55);white-space:nowrap">${fmtDate(f.last_modified)}</td>
-                    <td style="padding:10px 12px">
-                        <div style="display:flex;gap:8px">
-                            <button onclick="s3Download('${esc(f.key)}')" style="background:rgba(0,242,254,.1);border:1px solid rgba(0,242,254,.25);color:#00f2fe;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">⬇ 下載</button>
-                            <button onclick="s3Delete('${esc(f.key)}')" style="background:rgba(255,68,68,.1);border:1px solid rgba(255,68,68,.25);color:#ff4444;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer">🗑</button>
-                        </div>
-                    </td>
-                </tr>`).join('');
+            pieChart = new Chart(document.getElementById('pieChart'), {
+                type: 'pie',
+                data: {
+                    labels: holdings.map(h => h.name),
+                    datasets: [{
+                        data: holdings.map(h => h.weight),
+                        backgroundColor: ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#34495e', '#7f8c8d', '#bdc3c7']
+                    }]
+                },
+                options: {
+                    plugins: {
+                        legend: { position: 'bottom', labels: { padding: 20, boxWidth: 12 } },
+                        datalabels: {
+                            color: '#fff',
+                            font: { weight: 'bold', size: 12 },
+                            formatter: (v, ctx) => v > 5 ? ctx.chart.data.labels[ctx.dataIndex] : ''
+                        }
+                    }
+                }
+            });
         }
 
-        searchInput.addEventListener('input', e => {
-            const q = e.target.value.toLowerCase();
-            renderFiles(allFiles.filter(f => f.key.toLowerCase().includes(q)));
-        });
-        refreshBtn.addEventListener('click', loadFiles);
-
-        // Expose download / delete globally for onclick
-        window.s3Download = async function(key) {
+        async function start() {
+            const hRes = await fetch('/api/holdings');
+            const holdings = await hRes.json();
+            // 載入已持久化的歷史走勢，讓圖一開始就有資料（不會空白）
             try {
-                const res = await fetch(`/api/s3/download-url?key=${encodeURIComponent(key)}`);
-                const d = await res.json();
-                if (!res.ok) throw new Error(d.error);
-                window.open(d.url, '_blank');
-            } catch (err) { alert('下載失敗：' + err.message); }
-        };
-        window.s3Delete = async function(key) {
-            if (!confirm(`確定要刪除 "${key}"？`)) return;
-            try {
-                const res = await fetch('/api/s3/delete', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({key}) });
-                const d = await res.json();
-                if (!res.ok) throw new Error(d.error);
-                loadFiles();
-            } catch (err) { alert('刪除失敗：' + err.message); }
-        };
+                const hist = await (await fetch('/api/history')).json();
+                hist.forEach(pt => { priceLabels.push(pt.t); priceData.push(pt.p); });
+            } catch (e) { console.error('history load failed', e); }
+            initCharts(holdings);
+            updateData();
+            setInterval(updateData, 10000);
+            }
 
-        loadFiles();
-    })();
-
-    // ── Live Clock ───────────────────────────────────────────────────────────
-    (function() {
-        const el = document.getElementById('live-clock');
-        function tick() { el.textContent = new Date().toLocaleTimeString('zh-TW', {hour12: false}); }
-        tick(); setInterval(tick, 1000);
-    })();
-
-    // ── Server IP ────────────────────────────────────────────────────────────
-    fetch('/api/server-ip')
-      .then(r => r.json())
-      .then(d => document.getElementById('client-ip').textContent = d.ip)
-      .catch(() => document.getElementById('client-ip').textContent = 'N/A');
+        start();
     </script>
 </body>
 </html>
