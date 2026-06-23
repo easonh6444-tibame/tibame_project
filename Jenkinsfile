@@ -124,8 +124,8 @@ def flueSummary(String diff) {
     } catch (ignored) {
         sh 'rm -f ci/flue/.flue_input.json || true'
         return callGemini(
-            '你是資深 DevOps 工程師，請用繁體中文撰寫 PR 審查摘要（限 300 字，不使用 emoji）。\n' +
-            '格式：\n### 變更摘要\n（一兩句概述）\n### 主要異動\n（條列，最多 5 點）\n### 需注意\n（潛在風險；若無寫「無特殊風險」）',
+            '你是資深 DevOps 工程師，請用繁體中文撰寫 PR 審查摘要，嚴格限制全文 100 字以內，不使用 emoji。\n' +
+            '格式：\n### 變更摘要\n（一句話概述）\n### 主要異動\n（條列，最多 3 點）\n### 需注意\n（潛在風險一句；若無寫「無特殊風險」）',
             "PR diff：\n\n${diff}"
         )
     }

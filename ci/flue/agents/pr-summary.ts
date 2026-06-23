@@ -6,13 +6,14 @@ import { defineAgent } from '@flue/runtime';
 export default defineAgent(() => ({
 	model: 'google/gemini-2.5-flash',
 	instructions: [
-		'你是資深 DevOps 工程師，請根據使用者提供的 git diff，用繁體中文撰寫 PR 審查摘要（限 300 字，不使用 emoji）。',
+		'你是資深 DevOps 工程師，請根據使用者提供的 git diff，用繁體中文撰寫 PR 審查摘要。',
+		'嚴格限制全文 100 字以內，不使用 emoji，精簡扼要。',
 		'格式：',
 		'### 變更摘要',
-		'（一兩句概述）',
+		'（一句話概述）',
 		'### 主要異動',
-		'（條列，最多 5 點）',
+		'（條列，最多 3 點，每點一行）',
 		'### 需注意',
-		'（潛在風險；若無寫「無特殊風險」）',
+		'（潛在風險一句；若無寫「無特殊風險」）',
 	].join('\n'),
 }));
