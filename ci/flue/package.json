@@ -1,0 +1,10 @@
+{
+  "name": "tibame-flue",
+  "private": true,
+  "type": "module",
+  "description": "Flue agents used by the Jenkins pipeline (PR diff summary).",
+  "dependencies": {
+    "@flue/cli": "^1.0.0-beta.3",
+    "@flue/runtime": "^1.0.0-beta.3"
+  }
+}
