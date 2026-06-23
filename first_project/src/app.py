@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string, render_template
 import requests
 import time
 import os
@@ -227,7 +227,7 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    return render_template("index.html")
 
 
 @app.route('/api/status', methods=['GET'])
