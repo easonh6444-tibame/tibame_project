@@ -1,60 +1,137 @@
-// Discord 即時進度通知：先建立一則訊息(?wait=true 取得 message id)，之後 PATCH 編輯同一則，
-// 讓單一訊息隨 pipeline 即時更新。用 curl 發送（python urllib 會被 Discord 的 Cloudflare 擋）。
+// Progress tracking for main/dev builds via a single editable Discord message.
+// MR builds are silent during pipeline — one embed fires only after tests pass or fail.
+
 def discordSend(String content) {
     withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
-        withEnv(["DISCORD_MSG=${content}"]) {
-            sh '''
-                python3 -c "import json,os; open('dc.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
-                curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}?wait=true" -o dc_resp.json || true
-                python3 -c "import json; print(json.load(open('dc_resp.json')).get('id',''))" > .discord_mid 2>/dev/null || echo "" > .discord_mid
-                rm -f dc.json dc_resp.json
-            '''
-        }
+        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([content: content]), encoding: 'UTF-8')
+        def resp = sh(returnStdout: true, script: 'curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}?wait=true" || echo "{}"').trim()
+        sh 'rm -f dc.json'
+        def mid = ''
+        try { mid = new groovy.json.JsonSlurper().parseText(resp)?.id ?: '' } catch (ignored) {}
+        writeFile(file: '.discord_mid', text: mid, encoding: 'UTF-8')
     }
 }
 
 def discordEdit(String content) {
     withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
-        withEnv(["DISCORD_MSG=${content}"]) {
-            sh '''
-                MID=$(cat .discord_mid 2>/dev/null || echo "")
-                python3 -c "import json,os; open('dc.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
-                if [ -n "$MID" ]; then
-                    curl -sf -X PATCH -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}/messages/${MID}" || true
-                else
-                    curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true
-                fi
-                rm -f dc.json
-            '''
+        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([content: content]), encoding: 'UTF-8')
+        def mid = ''
+        try { mid = readFile('.discord_mid').trim() } catch (ignored) {}
+        if (mid) {
+            sh 'curl -sf -X PATCH -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}/messages/' + mid + '" || true'
+        } else {
+            sh 'curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true'
         }
+        sh 'rm -f dc.json'
+    }
+}
+
+// One-shot Discord embed. color: 3066993=green  15158332=red  15105570=orange
+def discordEmbed(Map opts) {
+    def embed = [color: (opts.color ?: 3447003)]
+    if (opts.title)       embed.title       = opts.title
+    if (opts.description) embed.description = opts.description
+    if (opts.url)         embed.url         = opts.url
+    if (opts.fields)      embed.fields      = opts.fields
+    withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
+        writeFile(file: 'dc.json', text: groovy.json.JsonOutput.toJson([embeds: [embed]]), encoding: 'UTF-8')
+        sh 'curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true; rm -f dc.json'
     }
 }
 
 def progHeader() {
     def sha = (env.GIT_COMMIT ?: '').take(7)
-    return "**🔧 Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}**" + (sha ? " `${sha}`" : "")
+    return "Build #${env.BUILD_NUMBER} · ${env.BRANCH_NAME}" + (sha ? " `${sha}`" : "")
 }
-// MR(PR) 建置不印進度（env.CHANGE_ID 有值代表是 MR）；只在開啟時送一則通知
-def progStart(String body) { if (env.CHANGE_ID) return; discordSend(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
-def prog(String body)      { if (env.CHANGE_ID) return; discordEdit(progHeader() + "\n" + body + "\n" + env.BUILD_URL) }
+def progStart(String msg) { if (env.CHANGE_ID) return; discordSend(progHeader() + '\n' + msg + '\n' + env.BUILD_URL) }
+def prog(String msg)      { if (env.CHANGE_ID) return; discordEdit(progHeader() + '\n' + msg + '\n' + env.BUILD_URL) }
 
-// 純送一則訊息（不追蹤 id、不編輯）
-def discordSimple(String content) {
-    withCredentials([string(credentialsId: 'discord-webhook-url', variable: 'DISCORD_WEBHOOK')]) {
-        withEnv(["DISCORD_MSG=${content}"]) {
-            sh '''
-                python3 -c "import json,os; open('dc.json','w',encoding='utf-8').write(json.dumps({'content': os.environ['DISCORD_MSG']}))"
-                curl -sf -H "Content-Type: application/json" --data @dc.json "${DISCORD_WEBHOOK}" || true
-                rm -f dc.json
-            '''
+// ── Gemini AI ────────────────────────────────────────────────────────────────
+
+def callGemini(String sys, String user, String fallback = '（AI 分析暫時無法使用）') {
+    try {
+        withCredentials([string(credentialsId: 'gemini-api-key', variable: 'GEMINI_KEY')]) {
+            def payload = groovy.json.JsonOutput.toJson([
+                system_instruction: [parts: [[text: sys]]],
+                contents          : [[role: 'user', parts: [[text: user]]]],
+                generationConfig  : [
+                    maxOutputTokens: 1024,
+                    thinkingConfig : [thinkingBudget: 0]
+                ]
+            ])
+            writeFile(file: '.gemini_req.json', text: payload, encoding: 'UTF-8')
+            def resp = sh(returnStdout: true, script: '''
+                curl -sf --max-time 30 \
+                  -H "Content-Type: application/json" \
+                  --data @.gemini_req.json \
+                  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}"
+            ''').trim()
+            sh 'rm -f .gemini_req.json'
+            def parsed = new groovy.json.JsonSlurper().parseText(resp)
+            return parsed.candidates[0].content.parts[0].text.trim()
         }
+    } catch (ignored) {
+        sh 'rm -f .gemini_req.json || true'
+        return fallback
     }
 }
-def notifyPrOpened() {
-    def title = env.CHANGE_TITLE ? (" — " + env.CHANGE_TITLE) : ""
-    discordSimple("📬 **PR !${env.CHANGE_ID} 已開啟**（測試通過 ✅，可供審核）" + title +
-        "\n作者: " + (env.CHANGE_AUTHOR ?: '?') + " ｜ 目標分支: " + (env.CHANGE_TARGET ?: 'main') +
-        "\n" + (env.CHANGE_URL ?: env.BUILD_URL))
+
+// Run after tests pass; fetches diff against target branch and asks Gemini to summarise.
+def prDiffSummary() {
+    def target = env.CHANGE_TARGET ?: 'main'
+    def diff = sh(returnStdout: true, script: """
+        git fetch --depth=30 origin ${target} 2>/dev/null || true
+        git diff origin/${target}...HEAD | head -c 7000
+    """).trim()
+    if (!diff) return '（此 PR 無可分析的程式碼變更）'
+    return callGemini(
+        '你是資深 DevOps 工程師，請用繁體中文撰寫 PR 審查摘要（限 300 字，不使用 emoji）。\n' +
+        '格式：\n### 變更摘要\n（一兩句概述）\n### 主要異動\n（條列，最多 5 點）\n### 需注意\n（潛在風險；若無寫「無特殊風險」）',
+        "PR diff：\n\n${diff}"
+    )
+}
+
+def deployFailureSummary(String logs) {
+    return callGemini(
+        '你是 DevOps 工程師，請用繁體中文簡潔說明以下部署失敗原因及建議修復方向（限 200 字）。',
+        "部署失敗日誌（節錄）：\n\n${logs}"
+    )
+}
+
+// Extract base URL and URL-encoded project path from CHANGE_URL.
+// Must be @NonCPS because the =~ Matcher is not CPS-serializable.
+@NonCPS
+def parseMrUrl(String changeUrl) {
+    def m = changeUrl =~ /^(https?:\/\/[^\/]+)\/(.+?)\/-\/merge_requests\/\d+$/
+    if (!m) return null
+    return [base: m[0][1] as String, project: (m[0][2] as String).replace('/', '%2F')]
+}
+
+// Post a comment on the GitLab MR. Derives project path from CHANGE_URL, which is always
+// set by the GitLab Branch Source plugin. Silently skipped if credentials or vars are missing.
+def postGitLabMrComment(String body) {
+    try {
+        def changeUrl = env.CHANGE_URL ?: ''
+        def iid       = env.CHANGE_ID  ?: ''
+        if (!changeUrl || !iid) return
+        def parts = parseMrUrl(changeUrl)
+        if (!parts) return
+        def base    = parts.base
+        def project = parts.project
+        withCredentials([string(credentialsId: 'gitlab-api-token', variable: 'GL_TOKEN')]) {
+            writeFile(file: '.gl_note.json', text: groovy.json.JsonOutput.toJson([body: body]), encoding: 'UTF-8')
+            sh """
+                curl -sf -X POST \
+                  -H "PRIVATE-TOKEN: \${GL_TOKEN}" \
+                  -H "Content-Type: application/json" \
+                  --data @.gl_note.json \
+                  "${base}/api/v4/projects/${project}/merge_requests/${iid}/notes" || true
+                rm -f .gl_note.json
+            """
+        }
+    } catch (ignored) {
+        sh 'rm -f .gl_note.json || true'
+    }
 }
 
 pipeline {
@@ -70,8 +147,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                // MR 不在此通知（等測試通過後才在 post 通知）；main/dev 才開始即時進度
-                script { if (!env.CHANGE_ID) progStart("✅ Checkout\n⏳ Build…") }
+                script { if (!env.CHANGE_ID) progStart("starting...") }
             }
         }
 
@@ -79,7 +155,7 @@ pipeline {
             steps {
                 sh "docker build -t ${IMAGE}:${TAG} -t ${IMAGE}:latest ./first_project"
             }
-            post { success { script { prog("✅ Checkout　✅ Build\n⏳ Test…") } } }
+            post { success { script { prog("build done · testing...") } } }
         }
 
         stage('Test') {
@@ -97,13 +173,12 @@ pipeline {
                 """
             }
             post {
-                success { script { prog("✅ Checkout　✅ Build　✅ Test\n⏳ Push…") } }
+                success { script { prog("build done · test done · pushing...") } }
                 failure { sh "docker rm -f test-${TAG} || true" }
             }
         }
 
         stage('Push') {
-            // MR(change request) 只跑到 Build+Test 當作 PR 測試；只有 main/dev 才 push + 部署
             when { anyOf { branch 'main'; branch 'dev' } }
             steps {
                 sh "docker push ${IMAGE}:${TAG}"
@@ -113,42 +188,39 @@ pipeline {
                 success {
                     script {
                         if (env.BRANCH_NAME == 'main') {
-                            prog("✅ Checkout　✅ Build　✅ Test　✅ Push\n⏳ 等待 devops 核准部署…")
+                            prog("build done · test done · push done · waiting for deploy approval...")
                         } else {
-                            prog("✅ Checkout　✅ Build　✅ Test　✅ Push")
+                            prog("build done · test done · push done")
                         }
                     }
                 }
             }
         }
 
-        // dev branch → deploy to test server (192.168.0.65)
         stage('Deploy to Test') {
             when { branch 'dev' }
             steps {
-                script { prog("✅ Checkout　✅ Build　✅ Test　✅ Push\n🚀 部署到測試機 (192.168.0.65)…") }
+                script { prog("build done · test done · push done · deploying to test (192.168.0.65)...") }
                 sshagent(['test-server-ssh']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no root@192.168.0.65 '
-                            docker pull ${IMAGE}:${TAG} &&
-                            docker rm -f tibame_app || true &&
-                            docker run -d --name tibame_app --restart=unless-stopped -p 19191:19191 ${IMAGE}:${TAG}
-                        '
-                    """
+                    sh """#!/bin/bash
+set -eo pipefail
+ssh -o StrictHostKeyChecking=no root@192.168.0.65 '
+    docker pull ${IMAGE}:${TAG} &&
+    docker rm -f tibame_app || true &&
+    docker run -d --name tibame_app --restart=unless-stopped -p 19191:19191 ${IMAGE}:${TAG}
+' 2>&1 | tee .deploy_log
+"""
                 }
             }
         }
 
-        // main branch → deploy to AWS (ECR+ECS) and GCP (Artifact Registry+Cloud Run) via Jenkins OIDC
         stage('Deploy to Cloud') {
-            // beforeInput：先判斷分支再決定要不要問審批，否則 MR 也會被要求核准
             when {
                 branch 'main'
                 beforeInput true
             }
-            // 部署前需 devops 手動核准（只有 devops 或管理員能按）
             input {
-                message 'Build 已完成，是否部署到雲端？'
+                message 'Deploy to cloud?'
                 ok 'Deploy'
                 submitter 'devops'
                 submitterParameter 'APPROVER'
@@ -165,7 +237,7 @@ pipeline {
                 GCP_SA_EMAIL     = credentials('gcp-sa-email')
             }
             steps {
-                script { prog("✅ Checkout　✅ Build　✅ Test　✅ Push\n🚀 部署到雲端中 (ECS + Cloud Run)…") }
+                script { prog("build done · test done · push done · deploying to cloud (ECS + Cloud Run)...") }
                 withCredentials([
                     string(credentialsId: 'jenkins-oidc-aws', variable: 'JWT_AWS'),
                     string(credentialsId: 'jenkins-oidc-gcp', variable: 'JWT_GCP'),
@@ -173,6 +245,7 @@ pipeline {
                 ]) {
                     sh '''#!/bin/bash
 set -euo pipefail
+exec > >(tee .deploy_log) 2>&1
 
 # ── 1. AWS: assume role with Jenkins OIDC token ──
 CREDS=$(aws sts assume-role-with-web-identity \
@@ -217,8 +290,6 @@ echo "SA token response: ${SA_RESP}"
 SA_TOKEN=$(echo "${SA_RESP}" | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 
 # ── 3. Terraform: create registries first (ECR + Artifact Registry) ──
-# Cloud Run 部署時會驗證 image 是否存在，所以必須先有 registry 且 image 已 push，
-# 再 apply 運算資源，否則會 "Image not found"。
 export GOOGLE_OAUTH_ACCESS_TOKEN="${SA_TOKEN}"
 cd terraform
 terraform init -input=false
@@ -229,21 +300,21 @@ terraform apply -input=false -auto-approve \
   -target=google_artifact_registry_repository.app
 cd ..
 
-# ── 4. Push images to ECR ──
+# ── 4. Push to ECR ──
 aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${AWS_ECR_REGISTRY}
 docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:${TAG}
 docker tag ${IMAGE}:${TAG} ${ECR_IMAGE}:latest
 docker push ${ECR_IMAGE}:${TAG}
 docker push ${ECR_IMAGE}:latest
 
-# ── 5. Push images to GCP Artifact Registry ──
+# ── 5. Push to GCP Artifact Registry ──
 docker login -u oauth2accesstoken -p "${SA_TOKEN}" ${GCP_REGION}-docker.pkg.dev
 docker tag ${IMAGE}:${TAG} ${GAR_IMAGE}:${TAG}
 docker tag ${IMAGE}:${TAG} ${GAR_IMAGE}:latest
 docker push ${GAR_IMAGE}:${TAG}
 docker push ${GAR_IMAGE}:latest
 
-# ── 6. Terraform: deploy compute (images now exist in both registries) ──
+# ── 6. Terraform: deploy compute ──
 cd terraform
 terraform apply -input=false -auto-approve \
   -var="enable_compute=true" \
@@ -275,22 +346,56 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
     post {
         success {
-            echo "✅ Build ${TAG} (${env.BRANCH_NAME}) succeeded"
+            echo "Build ${TAG} (${env.BRANCH_NAME}) passed"
             script {
                 if (env.CHANGE_ID) {
-                    notifyPrOpened()   // MR：測試通過後才通知「PR 已開啟」
+                    // MR passed: generate AI summary, send one embed, post GitLab comment
+                    def summary = prDiffSummary()
+                    discordEmbed([
+                        title      : "PR !${env.CHANGE_ID} — tests passed" + (env.CHANGE_TITLE ? " | ${env.CHANGE_TITLE}" : ''),
+                        description: summary,
+                        color      : 3066993,
+                        url        : env.CHANGE_URL ?: env.BUILD_URL,
+                        fields     : [
+                            [name: 'Author', value: (env.CHANGE_AUTHOR ?: '?'),    inline: true],
+                            [name: 'Target', value: (env.CHANGE_TARGET ?: 'main'), inline: true],
+                            [name: 'Build',  value: "#${env.BUILD_NUMBER}",        inline: true]
+                        ]
+                    ])
+                    postGitLabMrComment("**AI Code Review** — build #${env.BUILD_NUMBER} passed\n\n${summary}")
                 } else {
-                    prog("✅ Checkout　✅ Build　✅ Test　✅ Push　✅ Deploy\n🎉 **部署成功**")
+                    prog("all done.")
                 }
             }
         }
         failure {
-            echo "❌ Build ${TAG} (${env.BRANCH_NAME}) failed"
-            script { prog("❌ **Build 失敗** — 查看 log 連結") }
+            echo "Build ${TAG} (${env.BRANCH_NAME}) failed"
+            script {
+                if (!env.CHANGE_ID) {
+                    def hasDeployLog = sh(returnStatus: true, script: "test -s .deploy_log") == 0
+                    if (hasDeployLog) {
+                        def logs    = sh(returnStdout: true, script: "tail -80 .deploy_log").trim()
+                        def summary = deployFailureSummary(logs)
+                        def sha     = (env.GIT_COMMIT ?: '').take(7)
+                        discordEmbed([
+                            title      : "Deploy failed — ${env.BRANCH_NAME} ${sha}",
+                            description: summary,
+                            color      : 15158332,
+                            url        : env.BUILD_URL,
+                            fields     : [[name: 'Build', value: "#${env.BUILD_NUMBER}", inline: true]]
+                        ])
+                    } else {
+                        prog("build/test failed — see logs")
+                    }
+                }
+            }
         }
         aborted {
-            script { prog("⚠️ **中止／未核准部署**") }
+            script { prog("aborted / deploy not approved") }
         }
-        always  { sh "docker rmi ${IMAGE}:${TAG} || true" }
+        always {
+            sh "docker rmi ${IMAGE}:${TAG} || true"
+            sh "rm -f .deploy_log || true"
+        }
     }
 }
