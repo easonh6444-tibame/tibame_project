@@ -146,7 +146,14 @@ def flueSummary(String diff) {
                       text: groovy.json.JsonOutput.toJson([message: diff]), encoding: 'UTF-8')
             def out = sh(returnStdout: true, script: '''
                 cd ci/flue
-                npm ci --no-audit --no-fund >/dev/null 2>&1 || npm install --no-audit --no-fund >/dev/null 2>&1
+                # 優先用容器內 bake 好的依賴（/opt/flue/node_modules），免每次 npm ci（省 ~1-2 分鐘）。
+                if [ ! -x node_modules/.bin/flue ] && [ -x /opt/flue/node_modules/.bin/flue ]; then
+                    ln -sfn /opt/flue/node_modules node_modules
+                fi
+                # 萬一沒有 bake 依賴才退回安裝。
+                if [ ! -x node_modules/.bin/flue ]; then
+                    npm ci --no-audit --no-fund >/dev/null 2>&1 || npm install --no-audit --no-fund >/dev/null 2>&1
+                fi
                 GEMINI_API_KEY="${GEMINI_KEY}" ./node_modules/.bin/flue run pr-summary --input "$(cat .flue_input.json)" 2>/dev/null
             ''').trim()
             sh 'rm -f ci/flue/.flue_input.json'
@@ -248,6 +255,28 @@ pipeline {
             post {
                 success { script { prog(2, 'run', '推送映像檔到 registry…', 3447003) } }
                 failure { sh "docker rm -f test-${TAG} || true" }
+            }
+        }
+
+        // MR 摘要在此階段（test 通過後立即）發出，確保早於任何後續部署通知。
+        stage('AI Review') {
+            when { changeRequest() }
+            steps {
+                script {
+                    def summary = prDiffSummary()
+                    discordEmbed([
+                        title      : "PR !${env.CHANGE_ID} — tests passed" + (env.CHANGE_TITLE ? " | ${env.CHANGE_TITLE}" : ''),
+                        description: summary,
+                        color      : 3066993,
+                        url        : env.CHANGE_URL ?: env.BUILD_URL,
+                        fields     : [
+                            [name: 'Author', value: (env.CHANGE_AUTHOR ?: '?'),    inline: true],
+                            [name: 'Target', value: (env.CHANGE_TARGET ?: 'main'), inline: true],
+                            [name: 'Build',  value: "#${env.BUILD_NUMBER}",        inline: true]
+                        ]
+                    ])
+                    postGitLabMrComment("**AI Code Review** — build #${env.BUILD_NUMBER} passed\n\n${summary}")
+                }
             }
         }
 
@@ -365,7 +394,10 @@ SA_TOKEN=$(echo "${SA_RESP}" | python3 -c "import sys,json; print(json.load(sys.
 # ── 3. Terraform: create registries first (ECR + Artifact Registry) ──
 export GOOGLE_OAUTH_ACCESS_TOKEN="${SA_TOKEN}"
 cd terraform
-terraform init -input=false
+# -reconfigure：忽略 workspace 殘留的 .terraform backend 快取，避免
+# 「Backend configuration changed」導致 state 不一致而中斷部署。
+rm -rf .terraform
+terraform init -input=false -reconfigure
 terraform apply -input=false -auto-approve \
   -var="enable_compute=true" \
   -var="app_image_tag=${TAG}" \
@@ -421,22 +453,8 @@ unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
         success {
             echo "Build ${TAG} (${env.BRANCH_NAME}) passed"
             script {
-                if (env.CHANGE_ID) {
-                    // MR passed: generate AI summary, send one embed, post GitLab comment
-                    def summary = prDiffSummary()
-                    discordEmbed([
-                        title      : "PR !${env.CHANGE_ID} — tests passed" + (env.CHANGE_TITLE ? " | ${env.CHANGE_TITLE}" : ''),
-                        description: summary,
-                        color      : 3066993,
-                        url        : env.CHANGE_URL ?: env.BUILD_URL,
-                        fields     : [
-                            [name: 'Author', value: (env.CHANGE_AUTHOR ?: '?'),    inline: true],
-                            [name: 'Target', value: (env.CHANGE_TARGET ?: 'main'), inline: true],
-                            [name: 'Build',  value: "#${env.BUILD_NUMBER}",        inline: true]
-                        ]
-                    ])
-                    postGitLabMrComment("**AI Code Review** — build #${env.BUILD_NUMBER} passed\n\n${summary}")
-                } else {
+                if (!env.CHANGE_ID) {
+                    // MR 摘要已在 'AI Review' 階段發出；這裡只處理 main/dev 的部署通知。
                     // A deploy ran iff .deploy_log exists — notify deploy success explicitly.
                     def deployed = sh(returnStatus: true, script: "test -s .deploy_log") == 0
                     if (deployed) {
