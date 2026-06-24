@@ -294,10 +294,30 @@ def get_data():
         return jsonify(error=str(e)), 500
 
 
+def fetch_today_intraday():
+    """從 Yahoo 取今天的分鐘級走勢 [{t, p}]（開盤到現在），讓圖一載入就有今天完整資料。"""
+    try:
+        url = "https://query1.finance.yahoo.com/v8/finance/chart/0050.TW?interval=1m&range=1d"
+        res = requests.get(url, headers=HEADERS, timeout=8).json()
+        result = res['chart']['result'][0]
+        ts = result.get('timestamp') or []
+        closes = (result.get('indicators', {}).get('quote') or [{}])[0].get('close') or []
+        out = []
+        for i, t in enumerate(ts):
+            c = closes[i] if i < len(closes) else None
+            if c is None:
+                continue
+            out.append({'t': time.strftime('%H:%M:%S', time.gmtime(t + 8 * 3600)), 'p': round(float(c), 2)})
+        return out
+    except Exception:
+        return []
+
+
 @app.route('/api/history')
 def get_history():
-    """回傳已持久化的價格歷史，給前端載入時把走勢圖補滿。"""
-    return jsonify(load_history())
+    """回傳今天的分鐘級走勢：優先用 Yahoo 即時抓（含今天稍早的資料），失敗才退回 GCS 累積值。"""
+    pts = fetch_today_intraday()
+    return jsonify(pts if pts else load_history())
 
 
 @app.route('/api/holdings')
