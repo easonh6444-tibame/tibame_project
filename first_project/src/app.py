@@ -26,29 +26,40 @@ def _history_blob():
     return storage.Client().bucket(STOCK_BUCKET).blob(HISTORY_BLOB)
 
 
+def _today():
+    """今天日期（GMT+8），用來切分每日歷史。"""
+    return time.strftime('%Y-%m-%d', time.gmtime(time.time() + 8 * 3600))
+
+
 def load_history():
-    """讀取已存的價格歷史（list of {t, p}）；失敗或未設定 bucket 則回空陣列。"""
+    """讀取『今天』的價格歷史（list of {d, t, p}）；失敗或未設定 bucket 則回空陣列。"""
     if not STOCK_BUCKET:
         return []
     try:
         blob = _history_blob()
         if blob.exists():
-            return json.loads(blob.download_as_text())
+            hist = json.loads(blob.download_as_text())
+            today = _today()
+            return [pt for pt in hist if pt.get('d') == today]
     except Exception:
         pass
     return []
 
 
 def save_point(t, price):
-    """把一個價格點 append 進歷史，只保留最近 MAX_POINTS 筆。"""
+    """append 一個價格點；跨日自動重置，只保留『當天』最近 MAX_POINTS 筆。"""
     if not STOCK_BUCKET:
         return
     try:
         blob = _history_blob()
         hist = json.loads(blob.download_as_text()) if blob.exists() else []
+        today = _today()
+        # 跨日：清掉舊日資料，只留今天（避免昨天與今天混在一起）
+        if hist and hist[-1].get('d') != today:
+            hist = []
         # 同一個時間戳不重複寫入
         if not hist or hist[-1].get('t') != t:
-            hist.append({'t': t, 'p': price})
+            hist.append({'d': today, 't': t, 'p': price})
             hist = hist[-MAX_POINTS:]
             blob.upload_from_string(json.dumps(hist), content_type='application/json')
     except Exception:
