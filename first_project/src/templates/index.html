@@ -73,10 +73,23 @@
         let priceChart, pieChart;
         let todayOpen = null; // 今日開盤價，用來決定折線各線段顏色
         let chartDay = null;  // 圖表目前代表的日期（用本地日期切分每日，跨日只顯示當天）
-        const priceData = [];
-        const priceLabels = [];
+        const priceData = []; // 點為 {x: 開盤後分鐘數, y: 價格}
 
+        // 0050（台股）交易時段 09:00–13:30，x 軸固定此範圍（開盤到收盤的完整寬度）
+        const OPEN_MIN = 9 * 60;      // 09:00
+        const SPAN_MIN = 4 * 60 + 30; // 270 分鐘（至 13:30）
         function todayKey() { return new Date().toLocaleDateString('zh-TW'); }
+        // "HH:MM:SS" → 開盤後分鐘數，夾在 0～270（畫在固定時間軸上）
+        function minFromOpen(t) {
+            const [h, m, s] = String(t).split(':').map(Number);
+            const v = (h * 60 + (m || 0) + (s || 0) / 60) - OPEN_MIN;
+            return Math.max(0, Math.min(SPAN_MIN, v));
+        }
+        // 分鐘數 → "HH:MM"（x 軸刻度顯示）
+        function fmtMin(v) {
+            const tot = OPEN_MIN + v, h = Math.floor(tot / 60), m = Math.round(tot % 60);
+            return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+        }
 
         async function updateData() {
             try {
@@ -105,18 +118,17 @@
                 document.getElementById('volume').innerText = data.volume.toLocaleString() + ' 張';
                 document.getElementById('update-time').innerText = data.time + ' 更新';
 
-                // 跨日切分：偵測到新的一天就清空，只保留當天資料（總寬度不變，x 軸自動縮放）
+                // 跨日切分：偵測到新的一天就清空，只保留當天資料
                 const day = todayKey();
                 if (chartDay !== day) {
                     chartDay = day;
-                    priceLabels.length = 0;
                     priceData.length = 0;
                 }
-                // 更新圖表：每個新時間點為一段線
-                const now = data.time;
-                if (priceLabels[priceLabels.length - 1] !== now) {
-                    priceLabels.push(now);
-                    priceData.push(p);
+                // 依實際時間把點畫在固定的 09:00–13:30 軸上（即時往右填）
+                const x = minFromOpen(data.time);
+                const lastPt = priceData[priceData.length - 1];
+                if (!lastPt || lastPt.x !== x) {
+                    priceData.push({ x, y: p });
                     priceChart.update('none'); // 無動畫更新
                 }
             } catch (e) { console.error("Fetch error", e); }
@@ -125,7 +137,7 @@
         function initCharts(holdings) {
             priceChart = new Chart(document.getElementById('priceChart'), {
                 type: 'line',
-                data: { labels: priceLabels, datasets: [{ data: priceData, borderColor: '#3498db',
+                data: { datasets: [{ data: priceData, borderColor: '#3498db',
                     // 每段線依「該點價格 vs 今日開盤」上色：高於=紅(漲)、低於=綠(跌)、持平=黑
                     segment: { borderColor: ctx => {
                         if (todayOpen == null) return '#3498db';
@@ -136,8 +148,8 @@
                     } },
                     // 填色依現價 vs 今日開盤：淡紅 / 淡綠 / 淡灰(持平)
                     backgroundColor: ctx => {
-                        const last = priceData[priceData.length - 1];
-                        if (todayOpen == null || last === todayOpen) return 'rgba(120, 120, 120, 0.06)';
+                        const last = priceData.length ? priceData[priceData.length - 1].y : null;
+                        if (todayOpen == null || last == null || last === todayOpen) return 'rgba(120, 120, 120, 0.06)';
                         return last > todayOpen ? 'rgba(231, 76, 60, 0.08)' : 'rgba(46, 204, 113, 0.08)';
                     },
                     borderWidth: 2, tension: 0.1, fill: true, pointRadius: 0 }] },
@@ -146,7 +158,10 @@
                     interaction: { intersect: false, mode: 'index' },
                     plugins: { legend: { display: false }, datalabels: { display: false } },
                     scales: {
-                        x: { ticks: { autoSkip: true, maxTicksLimit: 10 } },
+                        x: {
+                            type: 'linear', min: 0, max: SPAN_MIN, // 固定 09:00–13:30 完整寬度
+                            ticks: { stepSize: 30, callback: v => fmtMin(v) }
+                        },
                         y: { ticks: { callback: v => v.toFixed(1) } }
                     }
                 }
@@ -180,7 +195,7 @@
             // 載入已持久化的歷史走勢，讓圖一開始就有資料（不會空白）
             try {
                 const hist = await (await fetch('/api/history')).json();
-                hist.forEach(pt => { priceLabels.push(pt.t); priceData.push(pt.p); });
+                hist.forEach(pt => priceData.push({ x: minFromOpen(pt.t), y: pt.p }));
                 chartDay = todayKey(); // 視已載入的歷史為今天，之後跨日才重置
             } catch (e) { console.error('history load failed', e); }
             initCharts(holdings);
