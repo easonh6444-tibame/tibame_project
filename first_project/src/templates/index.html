@@ -72,8 +72,11 @@
         Chart.register(ChartDataLabels);
         let priceChart, pieChart;
         let todayOpen = null; // 今日開盤價，用來決定折線各線段顏色
+        let chartDay = null;  // 圖表目前代表的日期（用本地日期切分每日，跨日只顯示當天）
         const priceData = [];
         const priceLabels = [];
+
+        function todayKey() { return new Date().toLocaleDateString('zh-TW'); }
 
         async function updateData() {
             try {
@@ -102,12 +105,18 @@
                 document.getElementById('volume').innerText = data.volume.toLocaleString() + ' 張';
                 document.getElementById('update-time').innerText = data.time + ' 更新';
 
-                // 更新圖表
-                const now = data.time.split(' ')[0]; // 只取時間部分
+                // 跨日切分：偵測到新的一天就清空，只保留當天資料（總寬度不變，x 軸自動縮放）
+                const day = todayKey();
+                if (chartDay !== day) {
+                    chartDay = day;
+                    priceLabels.length = 0;
+                    priceData.length = 0;
+                }
+                // 更新圖表：每個新時間點為一段線
+                const now = data.time;
                 if (priceLabels[priceLabels.length - 1] !== now) {
                     priceLabels.push(now);
                     priceData.push(p);
-                    if (priceLabels.length > 100) { priceLabels.shift(); priceData.shift(); }
                     priceChart.update('none'); // 無動畫更新
                 }
             } catch (e) { console.error("Fetch error", e); }
@@ -117,10 +126,20 @@
             priceChart = new Chart(document.getElementById('priceChart'), {
                 type: 'line',
                 data: { labels: priceLabels, datasets: [{ data: priceData, borderColor: '#3498db',
-                    // 線段顏色：高於今日開盤為紅（漲），低於為綠（跌）
-                    segment: { borderColor: ctx => (todayOpen != null && ctx.p1.parsed.y >= todayOpen) ? '#e74c3c' : '#2ecc71' },
-                    // 填色區域也跟著紅綠：現價高於今日開盤淡紅、低於淡綠
-                    backgroundColor: ctx => { const last = priceData[priceData.length - 1]; return (todayOpen != null && last >= todayOpen) ? 'rgba(231, 76, 60, 0.08)' : 'rgba(46, 204, 113, 0.08)'; },
+                    // 每段線依「該點價格 vs 今日開盤」上色：高於=紅(漲)、低於=綠(跌)、持平=黑
+                    segment: { borderColor: ctx => {
+                        if (todayOpen == null) return '#3498db';
+                        const v = ctx.p1.parsed.y;
+                        if (v > todayOpen) return '#e74c3c';
+                        if (v < todayOpen) return '#2ecc71';
+                        return '#000000';
+                    } },
+                    // 填色依現價 vs 今日開盤：淡紅 / 淡綠 / 淡灰(持平)
+                    backgroundColor: ctx => {
+                        const last = priceData[priceData.length - 1];
+                        if (todayOpen == null || last === todayOpen) return 'rgba(120, 120, 120, 0.06)';
+                        return last > todayOpen ? 'rgba(231, 76, 60, 0.08)' : 'rgba(46, 204, 113, 0.08)';
+                    },
                     borderWidth: 2, tension: 0.1, fill: true, pointRadius: 0 }] },
                 options: {
                     animation: false, // 關閉動畫提升 1s 更新頻率下的效能
@@ -162,6 +181,7 @@
             try {
                 const hist = await (await fetch('/api/history')).json();
                 hist.forEach(pt => { priceLabels.push(pt.t); priceData.push(pt.p); });
+                chartDay = todayKey(); // 視已載入的歷史為今天，之後跨日才重置
             } catch (e) { console.error('history load failed', e); }
             initCharts(holdings);
             updateData();
