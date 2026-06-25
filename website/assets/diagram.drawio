@@ -1,0 +1,47 @@
+<mxfile host="app.diagrams.net"><diagram id="ve5xmxzs-grsk" name="Page-1"><mxGraphModel dx="1320" dy="960" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1340" pageHeight="900" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/><mxCell id="1" parent="0"/>
+    <mxCell id="title" value="tibame_project CI/CD" style="text;html=1;align=center;fontSize=20;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="520" y="8" width="240" height="30" as="geometry"/></mxCell>
+    <mxCell id="devnote" value="dev → 部署到內部測試機" style="whiteSpace=wrap;html=1;rounded=1;dashed=1;fillColor=#f5f5f5;strokeColor=#999999;fontStyle=2;fontSize=11;" vertex="1" parent="1"><mxGeometry x="1070" y="55" width="230" height="40" as="geometry"/></mxCell>
+
+    <mxCell id="n1" value="開 MR (programmer)" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/gitlab/gitlab-original.svg;" vertex="1" parent="1"><mxGeometry x="608" y="50" width="64" height="64" as="geometry"/></mxCell>
+    <mxCell id="n2" value="Jenkins 自動觸發" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/jenkins/jenkins-original.svg;" vertex="1" parent="1"><mxGeometry x="608" y="160" width="64" height="64" as="geometry"/></mxCell>
+    <mxCell id="d1" value="MR / main ?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="580" y="270" width="120" height="80" as="geometry"/></mxCell>
+
+    <mxCell id="mrlane" value="MR Pipeline" style="rounded=1;html=1;dashed=1;fillColor=none;strokeColor=#6c8ebf;verticalAlign=top;fontStyle=2;" vertex="1" parent="1"><mxGeometry x="70" y="380" width="380" height="480" as="geometry"/></mxCell>
+    <mxCell id="m1" value="Build + Test" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/docker/docker-original.svg;" vertex="1" parent="1"><mxGeometry x="228" y="405" width="64" height="64" as="geometry"/></mxCell>
+    <mxCell id="md" value="Test ?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="205" y="505" width="110" height="70" as="geometry"/></mxCell>
+    <mxCell id="msilent" value="靜默" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;" vertex="1" parent="1"><mxGeometry x="95" y="515" width="70" height="50" as="geometry"/></mxCell>
+    <mxCell id="mai" value="AI 摘要 → GitLab 留言" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg;" vertex="1" parent="1"><mxGeometry x="228" y="615" width="64" height="64" as="geometry"/></mxCell>
+    <mxCell id="mpm" value="PM 合併 (pm)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="190" y="770" width="140" height="50" as="geometry"/></mxCell>
+
+    <mxCell id="mainlane" value="main Pipeline" style="rounded=1;html=1;dashed=1;fillColor=none;strokeColor=#82b366;verticalAlign=top;fontStyle=2;" vertex="1" parent="1"><mxGeometry x="700" y="380" width="600" height="480" as="geometry"/></mxCell>
+    <mxCell id="s1" value="Build + Test" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/docker/docker-original.svg;" vertex="1" parent="1"><mxGeometry x="745" y="410" width="60" height="60" as="geometry"/></mxCell>
+    <mxCell id="spush" value="Push → registry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="855" y="418" width="120" height="44" as="geometry"/></mxCell>
+    <mxCell id="sgate" value="Deploy ? (devops)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="1030" y="400" width="140" height="80" as="geometry"/></mxCell>
+    <mxCell id="sabort" value="取消" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;" vertex="1" parent="1"><mxGeometry x="1210" y="418" width="70" height="44" as="geometry"/></mxCell>
+    <mxCell id="stf" value="terraform apply" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/terraform/terraform-original.svg;" vertex="1" parent="1"><mxGeometry x="1070" y="540" width="60" height="60" as="geometry"/></mxCell>
+    <mxCell id="saws" value="AWS ECS + ECR" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/amazonwebservices/amazonwebservices-original-wordmark.svg;" vertex="1" parent="1"><mxGeometry x="760" y="640" width="72" height="64" as="geometry"/></mxCell>
+    <mxCell id="sgcp" value="GCP Cloud Run" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/googlecloud/googlecloud-original.svg;" vertex="1" parent="1"><mxGeometry x="930" y="640" width="64" height="64" as="geometry"/></mxCell>
+    <mxCell id="scf" value="Cloudflare" style="shape=image;html=1;verticalLabelPosition=bottom;verticalAlign=top;image=https://cdn.jsdelivr.net/gh/devicons/devicon/icons/cloudflare/cloudflare-original.svg;" vertex="1" parent="1"><mxGeometry x="1090" y="640" width="64" height="64" as="geometry"/></mxCell>
+    <mxCell id="sresult" value="部署結果 (綠/紅)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="850" y="800" width="200" height="44" as="geometry"/></mxCell>
+
+    <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="n1" target="n2"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="n2" target="d1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e3" value="MR" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=11;" edge="1" parent="1" source="d1" target="m1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e4" value="main" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=11;" edge="1" parent="1" source="d1" target="s1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="m1" target="md"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e6" value="否" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=11;" edge="1" parent="1" source="md" target="msilent"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e7" value="是" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=11;" edge="1" parent="1" source="md" target="mai"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="mai" target="mpm"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e9" value="觸發 main" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;dashed=1;fontSize=11;exitX=1;exitY=0.5;entryX=0;entryY=1;" edge="1" parent="1" source="mpm" target="s1"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e10" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="s1" target="spush"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e11" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="spush" target="sgate"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e12" value="未核准" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=11;" edge="1" parent="1" source="sgate" target="sabort"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e13" value="核准" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;fontSize=11;" edge="1" parent="1" source="sgate" target="stf"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="stf" target="saws"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e15" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="stf" target="sgcp"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="stf" target="scf"><mxGeometry relative="1" as="geometry"/></mxCell>
+    <mxCell id="e17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;" edge="1" parent="1" source="sgcp" target="sresult"><mxGeometry relative="1" as="geometry"/></mxCell>
+  </root>
+</mxGraphModel></diagram></mxfile>

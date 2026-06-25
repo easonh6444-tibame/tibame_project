@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tibame 專案說明</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <h1>全自動化 CI/CD 流水線實作</h1>
+    <p class="sub">這個專案是一條完整的 CI/CD 與多雲部署流程。以下以流程為主說明。</p>
+    <p class="live"><a href="https://buy0050.xyz" target="_blank" rel="noopener">看成品 ▸ 0050 即時儀表板（buy0050.xyz）</a></p>
+
+    <h2 id="app">示範應用程式</h2>
+    <p>一支用 Flask 寫的台股 0050 ETF 即時儀表板，資料來自 Yahoo Finance，以 Docker 容器執行、健康檢查端點為 <code>/api/status</code>。它在這裡的角色是「被部署的對象」。</p>
+
+    <h2 id="screens">成品畫面</h2>
+    <!-- 把圖片放到 website/assets/shots/，命名 1.png 2.png 3.png（或改 src）。小標題改 <figcaption> 文字。要加更多張就複製一個 <figure class="slide">。 -->
+    <div class="carousel" id="carousel">
+      <div class="slides">
+        <figure class="slide">
+          <div class="shot"><img src="assets/shots/1.png" alt="" onerror="this.parentElement.classList.add('empty')" /><span class="hint">（待放入圖片 1.png）</span></div>
+          <figcaption>部署成品</figcaption>
+        </figure>
+        <figure class="slide">
+          <div class="shot"><img src="assets/shots/2.png" alt="" onerror="this.parentElement.classList.add('empty')" /><span class="hint">（待放入圖片 2.png）</span></div>
+          <figcaption>AI輔助Code Review</figcaption>
+        </figure>
+        <figure class="slide">
+          <div class="shot"><img src="assets/shots/3.png" alt="" onerror="this.parentElement.classList.add('empty')" /><span class="hint">（待放入圖片 3.png）</span></div>
+          <figcaption>Webhook即時更新進度</figcaption>
+        </figure>
+        <figure class="slide">
+          <div class="shot"><img src="assets/shots/4.png" alt="" onerror="this.parentElement.classList.add('empty')" /><span class="hint">（待放入圖片 4.png）</span></div>
+          <figcaption>結合Terraform(IaC)</figcaption>
+        </figure>
+        <figure class="slide">
+          <div class="shot"><img src="assets/shots/5.png" alt="" onerror="this.parentElement.classList.add('empty')" /><span class="hint">（待放入圖片 4.png）</span></div>
+          <figcaption>部署前最後確認</figcaption>
+        </figure>
+      </div>
+      <button class="car-btn prev" aria-label="上一張">‹</button>
+      <button class="car-btn next" aria-label="下一張">›</button>
+      <div class="dots"></div>
+    </div>
+
+    <h2 id="pipeline">CI/CD 流程</h2>
+    <p>程式碼放在自架的 GitLab，CI 由自架的 Jenkins（multibranch pipeline）執行。推送與合併會自動觸發建置：GitLab 以 webhook 通知 Jenkins，另有每 2 分鐘的定期掃描作為後備。整體流程如下圖：</p>
+    <figure>
+      <img src="assets/diagram.png" alt="CI/CD 流程圖" />
+    </figure>
+
+    <h3>MR（開發中）流程</h3>
+    <ol>
+      <li>開發者推分支、開 Merge Request，Jenkins 自動建置該 MR。</li>
+      <li><b>Build</b>：以 <code>docker build</code> 建置應用映像。</li>
+      <li><b>Test</b>：啟動容器，對健康檢查端點做測試。</li>
+      <li>測試<b>失敗</b>則靜默結束、不發任何通知；<b>通過</b>才進入下一步。</li>
+      <li><b>AI Review</b>：自動產生程式碼摘要並貼回 GitLab（見下一節）。</li>
+      <li>PM 審核摘要後，把 MR 合併進 main。</li>
+    </ol>
+
+    <h3>main（合併後）流程</h3>
+    <ol>
+      <li><b>Build → Test → Push</b>：重新建置測試後，把映像推到私有 registry。</li>
+      <li><b>部署關卡</b>：停在人工核准點，需由 devops 角色核准才繼續。</li>
+      <li>核准後執行部署（見「部署」一節）。</li>
+      <li>整條 main 流程用<b>同一則可即時編輯的 Discord 訊息</b>追蹤：建置、測試、推送、部署各階段的進度與成敗都更新在那一則訊息上。</li>
+    </ol>
+
+    <h3>角色分工</h3>
+    <p>流程中以三個獨立的 GitLab 帳號分工：開發者負責開 MR、PM 負責審核與合併、devops 負責核准部署。</p>
+
+    <h2 id="ai">AI 程式碼審查</h2>
+    <p>每個 MR 在測試通過後，會用 Flue 框架驅動 Gemini，讀取該次的 git diff，產生 100 字以內的中文審查摘要。</p>
+    <ul>
+      <li>摘要由獨立的 AI Review 階段執行，排在任何部署通知之前。</li>
+      <li>產生後立即貼到該 MR 的 GitLab 留言，讓審核者快速掌握這次改了什麼、有無風險。</li>
+      <li>Flue 依賴已預先打包進 CI 環境，摘要可即時產出。</li>
+    </ul>
+
+    <h2 id="deploy">部署</h2>
+    <p>用 Terraform 以宣告式管理所有雲端資源，state 存在 AWS S3。同一份映像會部署到多個平台：</p>
+    <ul>
+      <li><b>AWS</b>：映像推到 ECR，由 ECS 服務執行。</li>
+      <li><b>GCP</b>：推到 Artifact Registry，部署到 Cloud Run。</li>
+      <li><b>Cloudflare</b>：管理 DNS，並托管這個說明網站。</li>
+      <li>認證使用 OIDC（AWS）與 Workload Identity Federation（GCP），流程中不存放長期金鑰。</li>
+      <li>dev 分支則部署到內部測試機，供開發驗證。</li>
+    </ul>
+
+    <h2 id="stack">使用的工具</h2>
+    <p>Jenkins、GitLab、Docker、Terraform、AWS（ECS、ECR）、GCP（Cloud Run、Artifact Registry）、Cloudflare、Gemini、Flue；應用程式為 Flask / Python。</p>
+
+    <hr />
+    <p class="foot">有問題可以點右下角按鈕問 AI。</p>
+    <p class="gh-foot">
+      <a href="https://github.com/easonh6444-tibame/tibame_project" target="_blank" rel="noopener" aria-label="GitHub">
+        <svg viewBox="0 0 16 16" width="30" height="30" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
+    </p>
+  </main>
+
+  <button id="chat-fab" class="chat-fab">問 AI</button>
+
+  <div id="chat-panel" class="chat-panel" hidden>
+    <div class="chat-head">
+      <span>專案問答</span>
+      <button id="chat-close" aria-label="關閉">×</button>
+    </div>
+    <div id="chat-body" class="chat-body">
+      <div class="msg bot">你可以問關於這個專案的問題，例如 CI/CD 怎麼觸發、AI 審查怎麼運作、部署到哪些平台。</div>
+    </div>
+    <form id="chat-form" class="chat-input">
+      <input id="chat-text" type="text" autocomplete="off" placeholder="輸入問題…" />
+      <button type="submit" id="chat-send">送出</button>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
